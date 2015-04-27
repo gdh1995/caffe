@@ -11,6 +11,7 @@ class MPInterface {
   enum ForkStatus { NONE, CHILD, PARENT };
   typedef void (*Callback)(void *data);
 
+  template <typename Dtype>
   static inline ForkStatus fork(const SolverParameter& param
       , const vector<shared_ptr<Blob<Dtype> > > &net_params) {
     set_copy(param.data_parallel(), param.model_parallel());

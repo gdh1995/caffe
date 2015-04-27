@@ -101,6 +101,7 @@ int train() {
   caffe::SolverParameter solver_param;
   caffe::ReadProtoFromTextFileOrDie(FLAGS_solver, &solver_param);
 
+  int old_flags_gpu = FLAGS_gpu;
   // If the gpu flag is not provided, allow the mode and device to be set
   // in the solver prototxt.
   if (FLAGS_gpu < 0
@@ -110,7 +111,7 @@ int train() {
 
   // Set device id and mode
   if (FLAGS_gpu >= 0) {
-    std::ostream &info = LOG(INFO);
+    std::ostringstream info;
     info << "Use GPU with device ID " << FLAGS_gpu;
     if (solver_param.device_id_size() >= 2) {
       int count = solver_param.device_id_size();
@@ -122,9 +123,11 @@ int train() {
       }
       Caffe::SetDevice(list, count);
       delete [] list;
-    } else {
+    } else if (old_flags_gpu >= 0 || solver_param.device_id_size() == 1) {
+      info << " only";
       Caffe::SetDevice(FLAGS_gpu);
     }
+    LOG(INFO) << info.str() << ".";
     Caffe::set_mode(Caffe::GPU);
   } else {
     LOG(INFO) << "Use CPU.";

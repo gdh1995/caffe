@@ -132,7 +132,7 @@ MPInterface::ForkStatus MPInterface::do_fork() {
   if (Caffe::mode() == Caffe::GPU) {
     if (device_count >= copy) {
       device_count = copy;
-    } else if (device_count >= 1) {
+    } else if (device_count > 1) {
       LOG(ERROR) << "Devices: should give " << copy << "device ids";
       return NONE;
     } else {
@@ -142,6 +142,8 @@ MPInterface::ForkStatus MPInterface::do_fork() {
       }
       device_list = new_list;
     }
+  } else {
+    device_count = copy;
   }
   shared_mem = mmap(NULL, shared_mem_size, PROT_READ | PROT_WRITE,
       MAP_SHARED | MAP_ANON, -1, 0);
@@ -267,7 +269,7 @@ void initChild() {
   child->pid = getpid();
   LOG(INFO) << "Fork a child #" << MPI::child_index();
   if (Caffe::mode() == Caffe::GPU) {
-    LOG(INFO) << "Child #" << MPI::child_index() << "user the device #"
+    LOG(INFO) << "Child #" << MPI::child_index() << " use the device #"
         << device_list[MPI::child_index()];
     Caffe::SetDevice(device_list[MPI::child_index()]);
   }
@@ -311,6 +313,7 @@ bool check_all_child() {
   for (int i = 0; i < device_count; i++) {
     p += child_mem_size;
     const ChildUnit *child = (const ChildUnit *)p;
+    LOG(INFO) << "child pid #" << child->pid << " is " << child->status;
     if (child->status != ChildUnit::SYNC) {
       return false;
     }
