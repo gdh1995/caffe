@@ -104,6 +104,26 @@ void MPInterface::setup_onfork(Callback func, void *data) {
   onfork_data.push_back(data);
 }
 
+template <typename Dtype>
+void MPInterface::calc_shared_mem(const vector<shared_ptr<Blob<Dtype> > > &net_params) {
+  if (data_partition_ <= 1) {
+    return;
+  }
+  int len = 0;
+  for (int i = 0; i < net_params.size(); i++) {
+    Blob<Dtype> *blob = net_params[i].get();
+    len += sizeof(Dtype) * blob->count();
+  }
+  len = (len + 15) / 16;
+  child_mem_size = len * 16 + sizeof(int) * 4;
+  shared_mem_size = child_mem_size * (data_partition_ + 1);
+}
+
+template
+void MPInterface::calc_shared_mem(const vector<shared_ptr<Blob<float> > > &net_params);
+template
+void MPInterface::calc_shared_mem(const vector<shared_ptr<Blob<double> > > &net_params);
+
 MPInterface::ForkStatus MPInterface::do_fork() {
   if (data_partition_ <= 1 && model_partition_ <= 1) {
     return NONE;
@@ -237,7 +257,7 @@ struct ChildUnit {
 ChildUnit *child;
 
 void cleanNexti() {
-    child->nexti = 0;
+  child->nexti = 0;
 }
 
 void initChild() {
@@ -362,4 +382,3 @@ static void work_parent(const vector<shared_ptr<Blob<Dtype> > > &data) {
     mem_to(i, len, data[i]->mutable_cpu_diff());
   }
 }
-

@@ -161,7 +161,7 @@ void Solver<Dtype>::InitTestNets() {
 
 template <typename Dtype>
 void Solver<Dtype>::Step(int iters) {
-  MPI::fork(param_.data_parallel(), param_.model_parallel());
+  MPI::fork(param_, net_->params_);
 
   vector<Blob<Dtype>*> bottom_vec;
   const int start_iter = iter_;

@@ -11,9 +11,10 @@ class MPInterface {
   enum ForkStatus { NONE, CHILD, PARENT };
   typedef void (*Callback)(void *data);
 
-  static inline ForkStatus fork(const int data_copy, const int model_copy) {
-    set_copy(data_copy, model_copy);
-    child_index_ = 0;
+  static inline ForkStatus fork(const SolverParameter& param
+      , const vector<shared_ptr<Blob<Dtype> > > &net_params) {
+    set_copy(param.data_parallel(), param.model_parallel());
+    calc_shared_mem(net_params);
     return fork_stat_ = do_fork();
   }
 
@@ -31,6 +32,8 @@ class MPInterface {
  private:
   static ForkStatus do_fork();
   static void set_copy(const int data_copy, const int model_copy);
+  template <typename Dtype>
+  static void calc_shared_mem(const vector<shared_ptr<Blob<Dtype> > > &net_params);
 
   static ForkStatus fork_stat_;
   static int child_index_;
