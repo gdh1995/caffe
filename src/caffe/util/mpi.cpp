@@ -26,6 +26,7 @@ static int child_mem_size = 0;
 static int child_ready_count = 0;
 
 static vector<MPInterface::Callback> onforks;
+static vector<MPInterface::Callback> on_not_forks;
 static vector<void *> onfork_data;
 
 static void initChild(void);
@@ -99,8 +100,9 @@ void MPInterface::set_copy(const int data_copy, const int model_copy) {
   // TODO: check batch size & split data layer
 }
 
-void MPInterface::setup_onfork(Callback func, void *data) {
+void MPInterface::setup_onfork(Callback func, void *data, Callback err_func) {
   onforks.push_back(func);
+  on_not_forks.push_back(err_func);
   onfork_data.push_back(data);
 }
 
@@ -173,6 +175,15 @@ MPInterface::ForkStatus MPInterface::do_fork() {
   
   initParent();
   return PARENT;
+}
+
+void MPInterface::trigger() {
+  const vector<Callback> &handlers = fork_stat_ == CHILD ? onforks : on_not_forks;
+  for (int i = 0; i < handlers.size(); i++) {
+    if (handlers[i] != NULL) {
+      handlers[i](onfork_data[i]);
+    }
+  }
 }
 
 template <> void MPInterface::sync<unsigned int>
@@ -272,9 +283,6 @@ void initChild() {
     LOG(INFO) << "Child #" << MPI::child_index() << " use the device #"
         << device_list[MPI::child_index()];
     Caffe::SetDevice(device_list[MPI::child_index()]);
-  }
-  for (int i = 0; i < onforks.size(); i++) {
-    onforks[i](onfork_data[i]);
   }
 }
 

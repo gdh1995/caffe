@@ -16,7 +16,9 @@ class MPInterface {
       , const vector<shared_ptr<Blob<Dtype> > > &net_params) {
     set_copy(param.data_parallel(), param.model_parallel());
     calc_shared_mem(net_params);
-    return fork_stat_ = do_fork();
+    fork_stat_ = do_fork();
+    trigger();
+    return fork_stat_;
   }
 
   template <typename Dtype>
@@ -28,7 +30,8 @@ class MPInterface {
   static inline int child_index() { return child_index_; }
   static inline int data_partition() { return data_partition_; }
   static inline int model_partition() { return model_partition_; }
-  static void setup_onfork(Callback func, void *data);
+  static void setup_onfork(Callback func, void *data, Callback err_func = NULL);
+  static void trigger();
 
  private:
   static ForkStatus do_fork();
