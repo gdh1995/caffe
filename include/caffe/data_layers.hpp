@@ -75,10 +75,14 @@ class BasePrefetchingDataLayer :
   // The thread's function
   virtual void InternalThreadEntry() {}
 
+  virtual void skip(int count) {}
+  void init_skip() {}
+
  protected:
   Blob<Dtype> prefetch_data_;
   Blob<Dtype> prefetch_label_;
   Blob<Dtype> transformed_data_;
+  int skip_step_;
 };
 
 template <typename Dtype>
@@ -94,6 +98,12 @@ class DataLayer : public BasePrefetchingDataLayer<Dtype> {
   virtual inline int ExactNumBottomBlobs() const { return 0; }
   virtual inline int MinTopBlobs() const { return 1; }
   virtual inline int MaxTopBlobs() const { return 2; }
+
+  virtual inline void skip(int count) {
+    for (int i = count; 0 <= --i; ) {
+      cursor_->Next();
+    }
+  }
 
  protected:
   virtual void InternalThreadEntry();

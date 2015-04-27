@@ -4,6 +4,12 @@
 #include "caffe/data_layers.hpp"
 #include "caffe/net.hpp"
 #include "caffe/util/io.hpp"
+#include "caffe/util/mpi.hpp"
+
+template <typename Dtype>
+void on_fork(void *layer) {
+  static_cast<BasePrefetchingDataLayer<Dtype> *>(layer)->init_skip();
+}
 
 namespace caffe {
 
@@ -40,6 +46,8 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
   if (this->output_labels_) {
     this->prefetch_label_.mutable_cpu_data();
   }
+  this->skip_step_ = 0;
+  MPI::setup_onfork(on_fork, this);
   DLOG(INFO) << "Initializing prefetch";
   this->CreatePrefetchThread();
   DLOG(INFO) << "Prefetch initialized.";
@@ -75,7 +83,17 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
   }
   // Start a new prefetch thread
   DLOG(INFO) << "CreatePrefetchThread";
+  if (MPI::fork_stat() == CHILD) {
+    skip(skip_step_);
+  }
   CreatePrefetchThread();
+}
+
+template <typename Dtype>
+void BasePrefetchingDataLayer<Dtype>::init_skip() {
+  int batch_size = this->layer_param_.data_param().batch_size();
+  this->skip_step_ = (MPI::data_partition() - 1) * batch_size;
+  this->skip(MPI::child_index() * batch_size);
 }
 
 #ifdef CPU_ONLY

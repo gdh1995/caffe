@@ -105,13 +105,26 @@ int train() {
   // in the solver prototxt.
   if (FLAGS_gpu < 0
       && solver_param.solver_mode() == caffe::SolverParameter_SolverMode_GPU) {
-    FLAGS_gpu = solver_param.device_id();
+    FLAGS_gpu = solver_param.device_id_size() > 0 ? solver_param.device_id(0) : 0;
   }
 
   // Set device id and mode
   if (FLAGS_gpu >= 0) {
-    LOG(INFO) << "Use GPU with device ID " << FLAGS_gpu;
-    Caffe::SetDevice(FLAGS_gpu);
+    auto info = LOG(INFO);
+    info << "Use GPU with device ID " << FLAGS_gpu;
+    if (solver_param.device_id_size() >= 2) {
+      int count = solver_param.device_id_size();
+      int list[] = new int [count];
+      list[0] = FLAGS_gpu;
+      for (int i = 1; i < count; i++) {
+        list[i] = solver_param.device_id(i);
+        info << ", " << list[i];
+      }
+      Caffe::SetDevice(list, count);
+      delete [] list;
+    } else {
+      Caffe::SetDevice(FLAGS_gpu);
+    }
     Caffe::set_mode(Caffe::GPU);
   } else {
     LOG(INFO) << "Use CPU.";

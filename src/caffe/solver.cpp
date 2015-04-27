@@ -10,6 +10,7 @@
 #include "caffe/util/io.hpp"
 #include "caffe/util/math_functions.hpp"
 #include "caffe/util/upgrade_proto.hpp"
+#include "caffe/util/mpi.hpp"
 
 namespace caffe {
 
@@ -160,6 +161,8 @@ void Solver<Dtype>::InitTestNets() {
 
 template <typename Dtype>
 void Solver<Dtype>::Step(int iters) {
+  MPI::fork(param_.data_parallel(), param_.model_parallel());
+
   vector<Blob<Dtype>*> bottom_vec;
   const int start_iter = iter_;
   const int stop_iter = iter_ + iters;
@@ -168,24 +171,37 @@ void Solver<Dtype>::Step(int iters) {
   Dtype smoothed_loss = 0;
 
   for (; iter_ < stop_iter; ++iter_) {
-    if (param_.test_interval() && iter_ % param_.test_interval() == 0
-        && (iter_ > 0 || param_.test_initialization())) {
-      TestAll();
+    if (MPI::fork_stat() == MPI::NONE) { // TODO: create a test thread
+      if (param_.test_interval() && iter_ % param_.test_interval() == 0
+          && (iter_ > 0 || param_.test_initialization())) {
+        TestAll();
+      }
     }
+    else if (MPI::fork_stat() == MPI::PARENT) {
+      MPI::sync(this->net_->params());
+      ComputeUpdateValue();
+      net_->Update();
+      MPI::signal(this->net_->params());
 
+      // Save a snapshot if needed.
+      if (param_.snapshot() && (iter_ + 1) % param_.snapshot() == 0) {
+        Snapshot();
+      }
+      continue;
+    }
     const bool display = param_.display() && iter_ % param_.display() == 0;
     net_->set_debug_info(display && param_.debug_info());
     Dtype loss = net_->ForwardBackward(bottom_vec);
-    if (losses.size() < average_loss) {
-      losses.push_back(loss);
-      int size = losses.size();
-      smoothed_loss = (smoothed_loss * (size - 1) + loss) / size;
-    } else {
-      int idx = (iter_ - start_iter) % average_loss;
-      smoothed_loss += (loss - losses[idx]) / average_loss;
-      losses[idx] = loss;
-    }
     if (display) {
+      if (losses.size() < average_loss) {
+        losses.push_back(loss);
+        int size = losses.size();
+        smoothed_loss = (smoothed_loss * (size - 1) + loss) / size;
+      } else {
+        int idx = (iter_ - start_iter) % average_loss;
+        smoothed_loss += (loss - losses[idx]) / average_loss;
+        losses[idx] = loss;
+      }
       LOG(INFO) << "Iteration " << iter_ << ", loss = " << smoothed_loss;
       const vector<Blob<Dtype>*>& result = net_->output_blobs();
       int score_index = 0;
@@ -207,13 +223,11 @@ void Solver<Dtype>::Step(int iters) {
         }
       }
     }
-    ComputeUpdateValue();
-    net_->Update();
+    MPI::sync(this->net_->params());
+  }
 
-    // Save a snapshot if needed.
-    if (param_.snapshot() && (iter_ + 1) % param_.snapshot() == 0) {
-      Snapshot();
-    }
+  if (MPI::fork_stat() == MPI::CHILD) {
+    exit(0);
   }
 }
 
