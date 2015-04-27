@@ -9,8 +9,12 @@
 #include <sys/mman.h>
 #include <signal.h>
 
-#include "caffe/common.hpp"
 #include "caffe/util/mpi.hpp"
+
+using std::vector;
+using boost::shared_ptr;
+using caffe::Blob;
+using caffe::MPInterface;
 
 static int device_count = 1;
 static const int * device_list = NULL;
@@ -21,12 +25,18 @@ static int shared_mem_size = 0;
 static int child_mem_size = 0;
 static int child_ready_count = 0;
 
-static vector<caffe::MPInterface::Callback> onforks;
+static vector<MPInterface::Callback> onforks;
 static vector<void *> onfork_data;
 
 static void initChild(void);
 static void unfork(void);
 static void mem_from(int i, int len, const void *data);
+
+static void initParent();
+static void set_child_ready();
+static bool check_all_child();
+static void signalChildren();
+static void cleanNexti();
 
 template <typename Dtype>
 static void work_child(const vector<shared_ptr<Blob<Dtype> > > &data);
@@ -61,7 +71,7 @@ void Caffe::SetDevice(const int *id_list, const int count) {
     const int new_id = new_list[0];
 // #ifdef _DEBUG
     int current_device = -1;
-    cudaError_t error = cudaGetDevice(&current_device);
+    cudaGetDevice(&current_device);
     if (current_device == new_id) {
       LOG(INFO) << "Devices: Get a device set but not inited: " << new_id;
     }
@@ -78,7 +88,7 @@ void Caffe::SetDevice(const int *id_list, const int count) {
 int MPInterface::data_partition_ = 1;
 int MPInterface::model_partition_ = 1;
 
-ForkStatus MPInterface::fork_stat_ = MPInterface::ForkStatus::NONE;
+MPInterface::ForkStatus MPInterface::fork_stat_ = MPInterface::NONE;
 int MPInterface::child_index_ = 0;
 
 void MPInterface::set_copy(const int data_copy, const int model_copy) {
@@ -90,8 +100,8 @@ void MPInterface::set_copy(const int data_copy, const int model_copy) {
 }
 
 void MPInterface::setup_onfork(Callback func, void *data) {
-  onforks.push(func);
-  onfork_data.push(data);
+  onforks.push_back(func);
+  onfork_data.push_back(data);
 }
 
 MPInterface::ForkStatus MPInterface::do_fork() {
@@ -118,7 +128,7 @@ MPInterface::ForkStatus MPInterface::do_fork() {
   if (shared_mem == MAP_FAILED) {
     LOG(ERROR) << "Map shared memory: failed!";
     if (Caffe::mode() == Caffe::GPU) {
-      SetDevice(device_list[0]); // select the first device and use this only
+      Caffe::SetDevice(device_list[0]); // select the first device and use this only
     }
     shared_mem = NULL;
     return NONE;
@@ -126,7 +136,7 @@ MPInterface::ForkStatus MPInterface::do_fork() {
 
   parent_id = getpid();
   for (int i = 0, size = device_count; i < size; ) {
-    pid_t child = fork();
+    pid_t child = ::fork();
     if (child < 0) {
       LOG(ERROR) << "Fork failed when creating #" << (i + 1);
       continue; // TODO: may go into a dead loop
@@ -139,18 +149,17 @@ MPInterface::ForkStatus MPInterface::do_fork() {
     // TODO: remember info;
   }
   
-  void initParent();
   initParent();
   return PARENT;
 }
 
 template <> void MPInterface::sync<unsigned int>
-(const vector<shared_ptr<Blob<Dtype> > > &data) {
+(const vector<shared_ptr<Blob<unsigned int> > > &data) {
   NOT_IMPLEMENTED;
 }
 
 template <> void MPInterface::sync<int>
-(const vector<shared_ptr<Blob<Dtype> > > &data) {
+(const vector<shared_ptr<Blob<int> > > &data) {
   NOT_IMPLEMENTED;
 }
 
@@ -160,11 +169,11 @@ void MPInterface::sync(const vector<shared_ptr<Blob<Dtype> > > &data) {
     return;
   }
   if (fork_stat() == CHILD) {
+    cleanNexti();
     for (int i = 0; i < data.size(); i++) {
       Blob<Dtype> *blob = data[i].get();
       mem_from(i, sizeof(Dtype) * blob->count(), blob->cpu_diff());
     }
-    void set_child_ready();
     set_child_ready();
     union sigval rc_val;
     rc_val.sival_int = 1;
@@ -186,7 +195,6 @@ void MPInterface::sync(const vector<shared_ptr<Blob<Dtype> > > &data) {
     // TODO: log info;
     ++child_ready_count;
     LOG(INFO) << "Get SIGUSR2, count = " << child_ready_count;
-    bool check_all_child();
     if (child_ready_count >= device_count && check_all_child()) {
       LOG(INFO) << "All children are waiting to sync.";
       child_ready_count = 0;
@@ -196,15 +204,25 @@ void MPInterface::sync(const vector<shared_ptr<Blob<Dtype> > > &data) {
   }
 }
 
+template
+void MPInterface::sync(const vector<shared_ptr<Blob<float> > > &data);
+template
+void MPInterface::sync(const vector<shared_ptr<Blob<double> > > &data);
+
 template <typename Dtype>
 void MPInterface::signal(const vector<shared_ptr<Blob<Dtype> > > &data) {
+  cleanNexti();
   for (int i = 0; i < data.size(); i++) {
     Blob<Dtype> *blob = data[i].get();
     mem_from(i, sizeof(Dtype) * blob->count(), blob->cpu_data());
   }
-  void signalChildren();
   signalChildren();
 }
+
+template
+void MPInterface::signal(const vector<shared_ptr<Blob<float> > > &data);
+template
+void MPInterface::signal(const vector<shared_ptr<Blob<double> > > &data);
 
 }  // namespace caffe
 
@@ -218,8 +236,12 @@ struct ChildUnit {
 
 ChildUnit *child;
 
+void cleanNexti() {
+    child->nexti = 0;
+}
+
 void initChild() {
-  child = (ChildUnit *)(shared_mem + child_mem_size * (MPI::child_index() + 1));
+  child = (ChildUnit *)((char *)shared_mem + child_mem_size * (MPI::child_index() + 1));
   child->nexti = 0;
   child->status = ChildUnit::ITER;
   child->pid = getpid();
@@ -227,7 +249,7 @@ void initChild() {
   if (Caffe::mode() == Caffe::GPU) {
     LOG(INFO) << "Child #" << MPI::child_index() << "user the device #"
         << device_list[MPI::child_index()];
-    SetDevice(device_list[MPI::child_index()]);
+    Caffe::SetDevice(device_list[MPI::child_index()]);
   }
   for (int i = 0; i < onforks.size(); i++) {
     onforks[i](onfork_data[i]);
@@ -238,11 +260,11 @@ void initParent() {
   sigset_t wait_set;
   sigemptyset(&wait_set);
   sigaddset(&wait_set, SIGUSR2);
-  sigprocmask(SIG_BLOCK, &procmask, NULL);
+  sigprocmask(SIG_BLOCK, &wait_set, NULL);
 
   child = (ChildUnit *)shared_mem;
   child->nexti = 0;
-  child->status = SYNC;
+  child->status = ChildUnit::SYNC;
   child->pid = parent_id;
 
   atexit(unfork);
@@ -265,7 +287,7 @@ void set_child_ready() {
 }
 
 bool check_all_child() {
-  const char *p = shared_mem;
+  const char *p = (const char *)shared_mem;
   for (int i = 0; i < device_count; i++) {
     p += child_mem_size;
     const ChildUnit *child = (const ChildUnit *)p;
@@ -279,7 +301,7 @@ bool check_all_child() {
 void signalChildren() {
   union sigval rc_val;
   rc_val.sival_int = 2;
-  const char *p = shared_mem;
+  const char *p = (const char *)shared_mem;
   for (int i = 0; i < device_count; i++) {
     p += child_mem_size;
     const ChildUnit *child = (const ChildUnit *)p;
@@ -310,7 +332,6 @@ static void work_child(const vector<shared_ptr<Blob<Dtype> > > &data) {
   child->nexti = 0;
   void *old_child = child;
   child = (ChildUnit *)shared_mem;
-  int *blob;
   for (int i = 0; i < data.size(); i++) {
     const int len = data[i]->count() * sizeof(Dtype);
     mem_to(i, len, data[i]->mutable_cpu_data());
@@ -322,7 +343,7 @@ template <typename Dtype>
 static void work_parent(const vector<shared_ptr<Blob<Dtype> > > &data) {
   child->nexti = 0;
   CHECK_EQ(shared_mem, child) << "parent's shared block is not \"index == 0\".";
-  caffe_copy(child_mem_size / sizeof(int), (int*)(shared_mem + child_mem_size), (int*)child);
+  caffe_copy(child_mem_size / sizeof(int), (int*)((char*)shared_mem + child_mem_size), (int*)child);
   int *blob;
   for (int i = 0; i < data.size(); i++) {
     const int count = data[i]->count(), len = count * sizeof(Dtype);
@@ -333,7 +354,7 @@ static void work_parent(const vector<shared_ptr<Blob<Dtype> > > &data) {
     for (int j = 1; j < device_count; j++) {
       blob_j = (const int *)(((const char*)blob_j) + child_mem_size);
       CHECK_EQ(len, blob_j[1]) << "diff_blob.count() does not match.";
-      caffe_add(count, (const Dtype *)(blob_j + 4)
+      caffe_axpy(count, (Dtype)1, (const Dtype *)(blob_j + 4)
           , (Dtype *)(blob + 4));
     }
     caffe_scal(count, ((Dtype)1) / ((float)device_count)
@@ -342,47 +363,3 @@ static void work_parent(const vector<shared_ptr<Blob<Dtype> > > &data) {
   }
 }
 
-
-// parent_id's message loop
-void waitSignal() {
-  sigset_t wait_set;
-  int sig_no;
-  const struct timespec tv = {5,0}; //timeout
-  siginfo_t sig_info;
-  pid_t pid = 0;
-
-  sigemptyset(&wait_set);
-  sigaddset(&wait_set, SIGUSR2);
-
-  signal(SIGCHLD,SIG_IGN);    // avoid Zombie
-
-  if(parent_id == 0) {
-      int rc = 0;
-      union sigval rc_val; // message passed
-      setsid();
-      rc = system("curl -O http://www.kernel.org/pub/linux/kernel/v2.4/linux-2.4.24.tar.gz &>/dev/null");
-      printf("rc = %d\n", rc);
-      rc_val.sival_int = rc/255;
-      sigqueue(parent_id, SIGUSR2, rc_val);
-      exit(0);
-  }
-
-  //parent_id process
-  for (; ; ) {
-    sigprocmask(&wait_set);
-    sig_no = sigtimedwait(&wait_set, &sig_info, &tv);
-    if(sig_no == -1) {
-        if(errno == EINTR) {
-            continue;
-        } else if(errno == EAGAIN); // time out
-            printf("child process timeout \n");
-        }
-        continue;
-    }
-    int msg = sig_info.si_int;
-    if(msg == 0) {
-      
-    } else {
-    }
-  }
-}

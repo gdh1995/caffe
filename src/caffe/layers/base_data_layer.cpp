@@ -8,7 +8,7 @@
 
 template <typename Dtype>
 void on_fork(void *layer) {
-  static_cast<BasePrefetchingDataLayer<Dtype> *>(layer)->init_skip();
+  static_cast<caffe::BasePrefetchingDataLayer<Dtype> *>(layer)->init_skip();
 }
 
 namespace caffe {
@@ -47,7 +47,7 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
     this->prefetch_label_.mutable_cpu_data();
   }
   this->skip_step_ = 0;
-  MPI::setup_onfork(on_fork, this);
+  MPI::setup_onfork(on_fork<Dtype>, this);
   DLOG(INFO) << "Initializing prefetch";
   this->CreatePrefetchThread();
   DLOG(INFO) << "Prefetch initialized.";
@@ -83,7 +83,7 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
   }
   // Start a new prefetch thread
   DLOG(INFO) << "CreatePrefetchThread";
-  if (MPI::fork_stat() == CHILD) {
+  if (MPI::fork_stat() == MPI::CHILD) {
     skip(skip_step_);
   }
   CreatePrefetchThread();

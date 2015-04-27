@@ -2,6 +2,7 @@
 #define CAFFE_UTIL_MPI_HPP_
 
 #include "caffe/common.hpp"
+#include "caffe/blob.hpp"
 
 namespace caffe {
 
@@ -21,10 +22,10 @@ class MPInterface {
   template <typename Dtype>
   static void signal(const vector<shared_ptr<Blob<Dtype> > > &data);
 
-  static inline ForkStatus fork_stat() { return return fork_stat_; }
+  static inline ForkStatus fork_stat() { return fork_stat_; }
   static inline int child_index() { return child_index_; }
   static inline int data_partition() { return data_partition_; }
-  static inline int model_partition_() { return model_partition_; }
+  static inline int model_partition() { return model_partition_; }
   static void setup_onfork(Callback func, void *data);
 
  private:

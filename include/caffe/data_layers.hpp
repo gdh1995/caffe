@@ -76,7 +76,7 @@ class BasePrefetchingDataLayer :
   virtual void InternalThreadEntry() {}
 
   virtual void skip(int count) {}
-  void init_skip() {}
+  void init_skip();
 
  protected:
   Blob<Dtype> prefetch_data_;

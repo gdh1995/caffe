@@ -110,11 +110,11 @@ int train() {
 
   // Set device id and mode
   if (FLAGS_gpu >= 0) {
-    auto info = LOG(INFO);
+    std::ostream &info = LOG(INFO);
     info << "Use GPU with device ID " << FLAGS_gpu;
     if (solver_param.device_id_size() >= 2) {
       int count = solver_param.device_id_size();
-      int list[] = new int [count];
+      int *list = new int [count];
       list[0] = FLAGS_gpu;
       for (int i = 1; i < count; i++) {
         list[i] = solver_param.device_id(i);
