@@ -53,7 +53,7 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
     this->prefetch_label_.mutable_cpu_data();
   }
   this->skip_step_ = 0;
-  MPI::setup_onfork(on_fork<Dtype>, this, on_not_fork);
+  MPI::setup_onfork(on_fork<Dtype>, this, on_not_fork<Dtype>);
 }
 
 template <typename Dtype>

@@ -111,14 +111,16 @@ void MPInterface::calc_shared_mem(const vector<shared_ptr<Blob<Dtype> > > &net_p
   if (data_partition_ <= 1) {
     return;
   }
-  int len = 0;
+  int sum = 0;
   for (int i = 0; i < net_params.size(); i++) {
     Blob<Dtype> *blob = net_params[i].get();
-    len += sizeof(Dtype) * blob->count();
+    int len = sizeof(Dtype) * blob->count();
+    len = (len + 15) / 16;
+    sum += sizeof(int) * 4 + len * 16;
   }
-  len = (len + 15) / 16;
-  child_mem_size = len * 16 + sizeof(int) * 4;
+  child_mem_size = sizeof(int) * 4 + sum;
   shared_mem_size = child_mem_size * (data_partition_ + 1);
+  LOG(INFO) << "ChildUnit: " << child_mem_size << " @ " << net_params.size();
 }
 
 template
@@ -157,6 +159,11 @@ MPInterface::ForkStatus MPInterface::do_fork() {
     shared_mem = NULL;
     return NONE;
   }
+
+  sigset_t wait_set;
+  sigemptyset(&wait_set);
+  sigaddset(&wait_set, SIGUSR2);
+  sigprocmask(SIG_BLOCK, &wait_set, NULL);
 
   parent_id = getpid();
   for (int i = 0, size = device_count; i < size; ) {
@@ -220,16 +227,17 @@ void MPInterface::sync(const vector<shared_ptr<Blob<Dtype> > > &data) {
     sigwait(&wait_set, &sig);
     if (sig != SIGUSR2) {
       continue;
-    }
+    } 
     if (fork_stat() == CHILD) {
+      LOG(INFO) << "Child #" << child_index_ << ": get merged data";
       work_child(data);
       return;
     }
-    // TODO: log info;
     ++child_ready_count;
     LOG(INFO) << "Get SIGUSR2, count = " << child_ready_count;
     if (child_ready_count >= device_count && check_all_child()) {
       LOG(INFO) << "All children are waiting to sync.";
+      LOG(INFO) << "Parent #" << child_index_ << ": " << (fork_stat() == PARENT);
       child_ready_count = 0;
       work_parent(data);
       return;
@@ -264,7 +272,7 @@ using namespace caffe;
 struct ChildUnit {
   enum Status {ITER, SYNC};
   int nexti, status, pid, mask3;
-  char data[0];
+  char data[0]; // [i, len, mask, mask, ...]
 };
 
 ChildUnit *child;
@@ -278,7 +286,7 @@ void initChild() {
   child->nexti = 0;
   child->status = ChildUnit::ITER;
   child->pid = getpid();
-  LOG(INFO) << "Fork a child #" << MPI::child_index();
+  LOG(INFO) << "Fork a child #" << MPI::child_index() << ", map: " << child;
   if (Caffe::mode() == Caffe::GPU) {
     LOG(INFO) << "Child #" << MPI::child_index() << " use the device #"
         << device_list[MPI::child_index()];
@@ -287,11 +295,6 @@ void initChild() {
 }
 
 void initParent() {
-  sigset_t wait_set;
-  sigemptyset(&wait_set);
-  sigaddset(&wait_set, SIGUSR2);
-  sigprocmask(SIG_BLOCK, &wait_set, NULL);
-
   child = (ChildUnit *)shared_mem;
   child->nexti = 0;
   child->status = ChildUnit::SYNC;
@@ -301,6 +304,7 @@ void initParent() {
 
   Caffe::set_mode(Caffe::CPU); // TODO: give some GPU resources
   LOG(INFO) << "Fork finished. Pid of the parent is " << parent_id;
+  LOG(INFO) << "Shared memory: " << child << " + " << shared_mem_size;
 }
 
 void unfork() {
@@ -320,8 +324,9 @@ bool check_all_child() {
   const char *p = (const char *)shared_mem;
   for (int i = 0; i < device_count; i++) {
     p += child_mem_size;
-    const ChildUnit *child = (const ChildUnit *)p;
-    LOG(INFO) << "child pid #" << child->pid << " is " << child->status;
+    const ChildUnit * const child = (const ChildUnit *)p;
+    LOG(INFO) << "child #" << child << ", pid #" << child->pid
+        << " is " << child->status << " with nexti=" << child->nexti;
     if (child->status != ChildUnit::SYNC) {
       return false;
     }
@@ -333,11 +338,15 @@ void signalChildren() {
   union sigval rc_val;
   rc_val.sival_int = 2;
   const char *p = (const char *)shared_mem;
+  std::ostringstream oss;
+  oss << "Parent: send signal to";
   for (int i = 0; i < device_count; i++) {
     p += child_mem_size;
-    const ChildUnit *child = (const ChildUnit *)p;
+    const ChildUnit * const child = (const ChildUnit *)p;
+    oss << " " << child->pid;
     sigqueue(child->pid, SIGUSR2, rc_val);
   }
+  LOG(INFO) << oss.str();
 }
 
 void mem_from(int i, int len, const void *data) {
@@ -348,37 +357,38 @@ void mem_from(int i, int len, const void *data) {
   child->nexti += 4 + len * 4;
 }
 
-void mem_to(int i, int len, void *data) {
-  const int *blob = (int *)(child->data + child->nexti * 4);
+void mem_to(int i, int len, void *data, const char * const from_data, int &nexti) {
+  const int * blob = (int *)(from_data + nexti * 4);
   CHECK_EQ(i, blob[0]) << "Net.Params[i] has an error index in s-mem.";
   CHECK_EQ(len, blob[1]) << "Net.Params[i] has no same shape with s-mem.";
   memcpy(data, blob + 4, len);
   len = (len + 15) / 16;
-  child->nexti += 4 + len * 4;
+  nexti += 4 + len * 4;
 }
 
 
 template <typename Dtype>
 static void work_child(const vector<shared_ptr<Blob<Dtype> > > &data) {
-  child->nexti = 0;
-  void *old_child = child;
-  child = (ChildUnit *)shared_mem;
+  const char * parent_data = ((ChildUnit *)shared_mem)->data;
+  int nexti = 0;
   for (int i = 0; i < data.size(); i++) {
     const int len = data[i]->count() * sizeof(Dtype);
-    mem_to(i, len, data[i]->mutable_cpu_data());
+    mem_to(i, len, data[i]->mutable_cpu_data(), parent_data, nexti);
   }
-  child = (ChildUnit *)old_child;
 }
 
 template <typename Dtype>
 static void work_parent(const vector<shared_ptr<Blob<Dtype> > > &data) {
-  child->nexti = 0;
   CHECK_EQ(shared_mem, child) << "parent's shared block is not \"index == 0\".";
-  caffe_copy(child_mem_size / sizeof(int), (int*)((char*)shared_mem + child_mem_size), (int*)child);
+  caffe_copy(child_mem_size / sizeof(int) - 4
+      , (int*)(child->data + child_mem_size)
+      , (int*)child->data);
+  child->nexti = 0;
   int *blob;
   for (int i = 0; i < data.size(); i++) {
     const int count = data[i]->count(), len = count * sizeof(Dtype);
     blob = (int *)(child->data + child->nexti * 4);
+    // LOG(INFO) << "Diff will sum to " << blob << " + " << len;
     CHECK_EQ(i, blob[0]) << "Net.params.diff_blob.index() error.";
     CHECK_EQ(len, blob[1]) << "Net.params.diff_blob.count() error.";
     const int *blob_j = (const int *)(((const char*)blob) + child_mem_size);
@@ -390,6 +400,6 @@ static void work_parent(const vector<shared_ptr<Blob<Dtype> > > &data) {
     }
     caffe_scal(count, ((Dtype)1) / ((float)device_count)
           , (Dtype *)(blob + 4));
-    mem_to(i, len, data[i]->mutable_cpu_diff());
+    mem_to(i, len, data[i]->mutable_cpu_diff(), child->data, child->nexti);
   }
 }
