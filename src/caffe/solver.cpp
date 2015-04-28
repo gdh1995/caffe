@@ -10,6 +10,7 @@
 #include "caffe/util/io.hpp"
 #include "caffe/util/math_functions.hpp"
 #include "caffe/util/upgrade_proto.hpp"
+#include "caffe/util/benchmark.hpp"
 #include "caffe/util/mpi.hpp"
 
 namespace caffe {
@@ -159,6 +160,8 @@ void Solver<Dtype>::InitTestNets() {
   }
 }
 
+static double sync_time_ = 0;
+
 template <typename Dtype>
 void Solver<Dtype>::Step(int iters) {
   MPI::fork(param_, net_->params());
@@ -169,6 +172,8 @@ void Solver<Dtype>::Step(int iters) {
   int average_loss = this->param_.average_loss();
   vector<Dtype> losses;
   Dtype smoothed_loss = 0;
+  double iter_time = 0;
+  CPUTimer timer;
 
   for (; iter_ < stop_iter; ++iter_) {
     if (MPI::fork_stat() == MPI::NONE) { // TODO: create a test thread
@@ -179,9 +184,11 @@ void Solver<Dtype>::Step(int iters) {
     }
     else if (MPI::fork_stat() == MPI::PARENT) {
       MPI::sync(this->net_->params());
+      timer.Start();
       ComputeUpdateValue();
       net_->Update();
       MPI::signal(this->net_->params());
+      sync_time_ += timer.MicroSeconds();
 
       // Save a snapshot if needed.
       if (param_.snapshot() && (iter_ + 1) % param_.snapshot() == 0) {
@@ -189,6 +196,7 @@ void Solver<Dtype>::Step(int iters) {
       }
       continue;
     }
+    timer.Start();
     const bool display = param_.display() && iter_ % param_.display() == 0;
     net_->set_debug_info(display && param_.debug_info());
     Dtype loss = net_->ForwardBackward(bottom_vec);
@@ -203,6 +211,9 @@ void Solver<Dtype>::Step(int iters) {
         losses[idx] = loss;
       }
       LOG(INFO) << "Iteration " << iter_ << ", loss = " << smoothed_loss;
+      iter_time += timer.MicroSeconds();
+      LOG(INFO) << "    Time = " << (iter_time / 1000) << " ms.";
+      iter_time = 0;
       const vector<Blob<Dtype>*>& result = net_->output_blobs();
       int score_index = 0;
       for (int j = 0; j < result.size(); ++j) {
@@ -222,6 +233,8 @@ void Solver<Dtype>::Step(int iters) {
               << result_vec[k] << loss_msg_stream.str();
         }
       }
+    } else {
+      iter_time += timer.MicroSeconds();
     }
     MPI::sync(this->net_->params());
   }
@@ -476,6 +489,8 @@ void SGDSolver<Dtype>::ComputeUpdateValue() {
   Dtype rate = GetLearningRate();
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
     LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
+    LOG(INFO) << "    Sync = " << (sync_time_ / 1000) << " ms.";
+    sync_time_ = 0;
   }
   ClipGradients();
   Dtype momentum = this->param_.momentum();
