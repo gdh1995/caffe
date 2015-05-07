@@ -11,7 +11,7 @@
 #include "caffe/util/math_functions.hpp"
 #include "caffe/util/upgrade_proto.hpp"
 #include "caffe/util/benchmark.hpp"
-#include "caffe/util/mpi.hpp"
+#include "caffe/util/mpi/interface.hpp"
 
 namespace caffe {
 
@@ -176,13 +176,13 @@ void Solver<Dtype>::Step(int iters) {
   CPUTimer timer;
 
   for (; iter_ < stop_iter; ++iter_) {
-    if (MPI::fork_stat() == MPI::NONE) { // TODO: create a test thread
+    if (MPI::worker_type() == MPI::SELF_ONLY) { // TODO: create a test thread
       if (param_.test_interval() && iter_ % param_.test_interval() == 0
           && (iter_ > 0 || param_.test_initialization())) {
         TestAll();
       }
     }
-    else if (MPI::fork_stat() == MPI::PARENT) {
+    else if (MPI::worker_type() == MPI::PARENT) {
       MPI::sync(this->net_->params());
       timer.Start();
       ComputeUpdateValue();
@@ -239,7 +239,7 @@ void Solver<Dtype>::Step(int iters) {
     MPI::sync(this->net_->params());
   }
 
-  if (MPI::fork_stat() == MPI::CHILD) {
+  if (MPI::worker_type() == MPI::CHILD) {
     exit(0);
   }
 }

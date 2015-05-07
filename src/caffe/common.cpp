@@ -4,6 +4,7 @@
 
 #include "caffe/common.hpp"
 #include "caffe/util/rng.hpp"
+#include "caffe/mpi/interface.hpp"
 
 namespace caffe {
 
@@ -52,6 +53,10 @@ void Caffe::set_random_seed(const unsigned int seed) {
 }
 
 void Caffe::SetDevice(const int device_id) {
+  NO_GPU;
+}
+
+void Caffe::SetDevice(const int *id_list, const int count) {
   NO_GPU;
 }
 
@@ -144,6 +149,44 @@ void Caffe::SetDevice(const int device_id) {
       CURAND_RNG_PSEUDO_DEFAULT));
   CURAND_CHECK(curandSetPseudoRandomGeneratorSeed(Get().curand_generator_,
       cluster_seedgen()));
+}
+
+void Caffe::SetDevice(const int *id_list, const int count) {
+  int last = 0;
+  if (count < 1) {
+    MPI::SetDeviceList(NULL, 0);
+    return;
+  }
+  int *new_list = new int [count];
+  for (int i = 0; i < count; i++) {
+    const int id = id_list[i];
+    if (id >= 0) {
+      cudaError_t error = cudaSetDevice(id);
+      if (error == cudaSuccess) {
+        new_list[last] = id;
+        last++;
+      }
+    }
+  }
+  device_count = last;
+  if (last <= 0) {
+    LOG(ERROR) << "Devices: all are invalid";
+    MPI::SetDeviceList(NULL, 0);
+  } else if (last == 1) {
+    cudaSetDevice(-1); // TODO: test and remove
+    const int new_id = new_list[0];
+// #ifdef _DEBUG
+    int current_device = -1;
+    cudaGetDevice(&current_device);
+    if (current_device == new_id) {
+      LOG(INFO) << "Devices: Get a device set but not inited: " << new_id;
+    }
+// #endif
+    SetDevice(new_id);
+    MPI::SetDeviceList(NULL, 1);
+  } else {
+    MPI::SetDeviceList(new_list, device_count);
+  }
 }
 
 void Caffe::DeviceQuery() {

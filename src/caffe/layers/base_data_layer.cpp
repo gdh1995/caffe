@@ -4,7 +4,7 @@
 #include "caffe/data_layers.hpp"
 #include "caffe/net.hpp"
 #include "caffe/util/io.hpp"
-#include "caffe/util/mpi.hpp"
+#include "caffe/util/mpi/interface.hpp"
 
 template <typename Dtype>
 void on_fork(void *layer) {
@@ -53,7 +53,8 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
     this->prefetch_label_.mutable_cpu_data();
   }
   this->skip_step_ = 0;
-  MPI::setup_onfork(on_fork<Dtype>, this, on_not_fork<Dtype>);
+  MPI::setup_handler(MPI::CHILD, on_fork<Dtype>, this);
+  MPI::setup_handler(MPI::SELF_ONLY, on_not_fork<Dtype>, this);
 }
 
 template <typename Dtype>
@@ -86,7 +87,7 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
   }
   // Start a new prefetch thread
   DLOG(INFO) << "CreatePrefetchThread";
-  if (MPI::fork_stat() == MPI::CHILD) {
+  if (MPI::worker_type() == MPI::CHILD) {
     skip(skip_step_);
   }
   CreatePrefetchThread();
