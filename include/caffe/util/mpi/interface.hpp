@@ -7,36 +7,37 @@
 namespace caffe {
 namespace mpi {
 
-// DType: DataType; CType: ContainerType
-template <typename DType, typename Ctype>
+class Interface;
+
+template <typename Dtype>
 class BaseWorker {
  public:
-  typedef const CType<Dtype> &CDataRef;
-  virtual void sync  (CDataRef data);
-  virtual void signal(CDataRef data);
+  inline BaseWorker() {}
+  typedef const vector<shared_ptr<Blob<Dtype> > > &CDataRef; 
+  virtual void sync  (CDataRef data) = 0;
+  virtual void signal(CDataRef data) = 0;
+  virtual void setInterface(Interface &interface) = 0;
 
  private:
-  DISABLE_COPY_AND_ASSIGN(Worker);
-}
+  DISABLE_COPY_AND_ASSIGN(BaseWorker);
+};
 
 class Interface {
  public:
+  Interface();
+
   enum WorkerType { SELF_ONLY, PARENT, CHILD };
   typedef void (Handler)(void *data);
   struct HandlerWrapper {
     Handler *func;
     void *data;
   };
-  template <typename Dtype>
-  typedef vector<shared_ptr<Blob<Dtype> > > SharedParams;
-  template <typename Dtype>
-  typedef const SharedParams<DType> &SharedParamsRef;
 
-  static inline SetDeviceList(const int *id_list, const int count) {
+  static inline void SetDeviceList(const int *id_list, const int count) {
     mpi.device_list_ = id_list;
     mpi.device_count_ = count;
   }
-  static inline GetDevice(const int index) {
+  static inline int GetDevice(const int index) {
     return mpi.device_list_ != NULL ? mpi.device_list_[index] : -1;
   }
 
@@ -45,7 +46,7 @@ class Interface {
 
   template <typename Dtype>
   static WorkerType fork(const SolverParameter& param,
-      SharedParamsRef<Dtype> net_params) {
+      const vector<shared_ptr<Blob<Dtype> > > &net_params) {
     int data_copy = param.data_parallel(), model_copy = param.model_parallel();
     CHECK_GE(data_copy, 1) << "Copy number is invalid.";
     CHECK_GE(model_copy, 1) << "Copy number is invalid.";
@@ -54,24 +55,23 @@ class Interface {
     if (!mpi.check_for_fork()) {
       return mpi.worker_type_ = SELF_ONLY;
     };
-    mpi.worker_ = mpi.do_fork();
-    mpi.trigger();
+    mpi.worker_ = mpi.do_fork(net_params);
+    static_cast<BaseWorker<Dtype>*>(mpi.worker_)->setInterface(mpi);
+    mpi.triggerHandlers();
     return mpi.worker_type_;
   }
 
   template <typename Dtype>
-  static void sync(SharedParamsRef<Dtype> net_params) {
+  static void sync(const vector<shared_ptr<Blob<Dtype> > > &net_params) {
     if (mpi.worker_type_ != SELF_ONLY) {
-      static_cast<BaseWorker<DType, vector<shared_ptr<Blob> > > >(mpi.worker_)
-          .sync(net_params);
+      static_cast<BaseWorker<Dtype>*>(mpi.worker_)->sync(net_params);
     }
   }
 
   template <typename Dtype>
-  static void signal(SharedParamsRef<Dtype> net_params) {
+  static void signal(const vector<shared_ptr<Blob<Dtype> > > &net_params) {
     if (mpi.worker_type_ != SELF_ONLY) {
-      static_cast<BaseWorker<DType, vector<shared_ptr<Blob> > > >(mpi.worker_)
-          .signal(net_params);
+      static_cast<BaseWorker<Dtype>*>(mpi.worker_)->signal(net_params);
     }
   }
 
@@ -79,16 +79,21 @@ class Interface {
   static inline int data_partition() { return mpi.data_partition_; }
   static inline int model_partition() { return mpi.model_partition_; }
   static inline int device_count() { return mpi.device_count_; }
-  static inline int device_list() { return mpi.device_list_; }
+  static inline const int *device_list() { return mpi.device_list_; }
+  static int child_index() { return mpi.child_index_; }
+
+  void setWorkerType(WorkerType t) { worker_type_ = t; }
+  void setChildIndex(int index) { child_index_ = index; }
 
  private:
   bool check_for_fork();
   template <typename Dtype>
-  void *do_fork(SharedParamsRef<Dtype> net_params) const;
+  void *do_fork(const vector<shared_ptr<Blob<Dtype> > > &net_params) const;
 
-  void trigger();
+  void triggerHandlers();
 
-  mutable WorkerType worker_type_;
+  WorkerType worker_type_;
+  int child_index_;
   int data_partition_;
   int model_partition_;
 
@@ -100,7 +105,7 @@ class Interface {
   void *worker_;
 
   static Interface mpi;
-  Interface();
+
   DISABLE_COPY_AND_ASSIGN(Interface);
 };
 

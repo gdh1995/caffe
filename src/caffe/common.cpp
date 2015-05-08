@@ -4,7 +4,7 @@
 
 #include "caffe/common.hpp"
 #include "caffe/util/rng.hpp"
-#include "caffe/mpi/interface.hpp"
+#include "caffe/util/mpi/interface.hpp"
 
 namespace caffe {
 
@@ -168,7 +168,7 @@ void Caffe::SetDevice(const int *id_list, const int count) {
       }
     }
   }
-  device_count = last;
+  int device_count = last;
   if (last <= 0) {
     LOG(ERROR) << "Devices: all are invalid";
     MPI::SetDeviceList(NULL, 0);

@@ -1,6 +1,7 @@
 #include <vector>
 
 #include "caffe/data_layers.hpp"
+#include "caffe/util/mpi/interface.hpp"
 
 namespace caffe {
 
@@ -18,6 +19,9 @@ void BasePrefetchingDataLayer<Dtype>::Forward_gpu(
   if (this->output_labels_) {
     caffe_copy(prefetch_label_.count(), prefetch_label_.cpu_data(),
         top[1]->mutable_gpu_data());
+  }
+  if (MPI::worker_type() == MPI::CHILD) {
+    skip(skip_step_);
   }
   // Start a new prefetch thread
   CreatePrefetchThread();

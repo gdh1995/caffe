@@ -10,17 +10,18 @@
 #include "caffe/util/mpi/worker.hpp"
 #include "caffe/blob.hpp"
 
-static void set_for_clean();
+static void set_for_clean(int type_size, void *instance);
 static void clean_at_exit();
-static void do_exit();
+static void do_exit(int sig);
+static void at_child_exit();
 
 #define SIGSYNC (SIGUSR2)
 
 namespace caffe {
 namespace mpi {
 
-template <typename DType, typename Ctype>
-int Worker::GetParamsSize(CDataRef net_params) {
+template <typename Dtype>
+int Worker<Dtype>::GetParamsSize(CDataRef net_params) {
   int sum = sizeof(int) * 2;
   for (int i = 0; i < net_params.size(); i++) {
     Blob<Dtype> *blob = net_params[i].get();
@@ -31,32 +32,25 @@ int Worker::GetParamsSize(CDataRef net_params) {
   return sum;
 }
 
-template <typename DType, typename Ctype>
-void Worker::sync(CDataRef data) {
+template <typename Dtype>
+void Worker<Dtype>::sync(CDataRef data) {
   NOT_IMPLEMENTED;
 }
 
-template <typename DType, typename Ctype>
-void Worker::signal(CDataRef data) {
+template <typename Dtype>
+void Worker<Dtype>::signal(CDataRef data) {
   NOT_IMPLEMENTED;
 }
 
-template <typename DType, typename Ctype>
-static void Worker::InitBufferArray(BufferUnit *buffer, CDataRef data) {
-  // for (int i = 0; i < data.size(); i++) {
-    // buffer->count = data[i]->count();
-    // buffer = buffer->next();
-  // }
-}
 
-template <typename DType, typename Ctype>
-ParentWorker::ParentWorker(int children_size, const int *children,
+template <typename Dtype>
+ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
     int data_size, char *memory)
-  : children_size_(children_size), children_(children)
-  , data_size_(data_size), memory_(memory), buffer_inited_(false)
+  : Worker<Dtype>(), children_size_(children_size), data_size_(data_size)
+  , children_(children), memory_(memory)
 {
   WorkerData *worker = (WorkerData *)memory_;
-  worker->status = WORKING;
+  worker->status = WorkerData::WORKING;
   worker->pid = getpid();
 
   sigset_t wait_set;
@@ -64,23 +58,20 @@ ParentWorker::ParentWorker(int children_size, const int *children,
   sigaddset(&wait_set, SIGSYNC);
   sigprocmask(SIG_BLOCK, &wait_set, NULL);
   
-  set_for_clean(sizeof(DType), this);
-  signal(SIGINT, do_exit);
-  signal(SIGTERM, do_exit);
-  signal(SIGHUP, do_exit);
-  atexit(clean_at_exit);
+  set_for_clean(sizeof(Dtype), this);
+  ::signal(SIGHUP, do_exit);
+  ::signal(SIGINT, do_exit);
+  ::signal(SIGTERM, do_exit);
+  ::signal(SIGQUIT, do_exit);
+  ::atexit(clean_at_exit);
   
   Caffe::set_mode(Caffe::CPU); // TODO: give some GPU resources
-  LOG(INFO) << "Shared memory: " << children_size + 1 << " * " << buffer_size;
+  LOG(INFO) << "Shared memory: " << children_size + 1 << " * " << data_size_;
 }
 
-template <typename DType, typename Ctype>
-void ParentWorker::sync(CDataRef data) {
-  WorkerData *worker = (const WorkerData *)memory_;
-  if (!buffer_inited_) {
-    InitBufferArray(worker->data, data);
-    buffer_inited_ = true;
-  }
+template <typename Dtype>
+void ParentWorker<Dtype>::sync(CDataRef data) {
+  WorkerData *worker = (WorkerData *)memory_;
   int sig, children_ready_num;
   sigset_t wait_set;
   sigemptyset(&wait_set);
@@ -97,44 +88,47 @@ void ParentWorker::sync(CDataRef data) {
     }
   }
   DLOG(INFO) << "All children are waiting to sync.";
-  worker->status = WORKING;
+  worker->status = WorkerData::WORKING;
   work(data);
 }
 
-template <typename DType, typename Ctype>
-void ParentWorker::work(CDataRef data) {
+template <typename Dtype>
+void ParentWorker<Dtype>::work(CDataRef data) {
   WorkerData *worker = (WorkerData *)memory_;
   BufferUnit *buffer = worker->data;
   const WorkerData *child_worker = worker->next(data_size_);
   const BufferUnit *child_buffer = child_worker->data;
-  const int count = (children_size_ - 2 * sizeof(int)) / sizeof(DType);
-  caffe_copy(count, (const DType *)child_buffer, (DType *)buffer);
+  const int count = (data_size_ - 2 * sizeof(int)) / sizeof(Dtype);
+  //LOG(INFO) << "Parent working: ds = " << count;
+  //LOG(INFO) << "  CP" << buffer << child_worker << child_buffer;
+  caffe_copy(count, (const Dtype *)child_buffer, (Dtype *)buffer);
   for (int i = 1; i < children_size_; i++) {
     child_worker = child_worker->next(data_size_);
     child_buffer = child_worker->data;
+    //LOG(INFO) << "  PX " << i << ": " << child_worker << child_buffer;
     caffe_axpy(count, (Dtype)1, (const Dtype *)child_buffer, (Dtype *)buffer);
   }
   caffe_scal(count, (Dtype)1 / children_size_, (Dtype *)buffer);
 
   for (int i = 0; i < data.size(); i++) {
     const int count = data[i]->count();
-    DType *diff_ptr = data[i]->mutable_cpu_diff();
+    Dtype *diff_ptr = data[i]->mutable_cpu_diff();
     caffe_copy(count, (const Dtype *)buffer, diff_ptr);
     buffer = buffer->next(count);
   }
 }
 
-template <typename DType, typename Ctype>
-void ParentWorker::signal(CDataRef data) {
+template <typename Dtype>
+void ParentWorker<Dtype>::signal(CDataRef data) {
   WorkerData *worker = (WorkerData *)memory_;
   BufferUnit *buffer = worker->data;
   for (int i = 0; i < data.size(); i++) {
     const int count = data[i]->count();
-    const DType *cpu_data = data[i]->cpu_data();
+    const Dtype *cpu_data = data[i]->cpu_data();
     caffe_copy(count, cpu_data, (Dtype *)buffer);
     buffer = buffer->next(count);
   }
-  worker->status = SYNCING;
+  worker->status = WorkerData::SYNCING;
   
   std::ostringstream oss;
   oss << "Parent: send signal to";
@@ -148,38 +142,50 @@ void ParentWorker::signal(CDataRef data) {
   DLOG(INFO) << oss.str();
 }
 
-template <typename DType, typename Ctype>
-void ParentWorker::check_all_child() {
+template <typename Dtype>
+bool ParentWorker<Dtype>::check_all_child() {
   const WorkerData *worker = (const WorkerData *)memory_;
-  for (int i = 0; i < children_size; i++) {
+  for (int i = 0; i < children_size_; i++) {
     worker = worker->next(data_size_);
-    if (worker->status != SYNCING) {
+    if (worker->status != WorkerData::SYNCING) {
       return false;
     }
   }
   return true;
 }
 
-template <typename DType, typename Ctype>
-void ParentWorker::clean() {
-  if (memory_ = NULL || buffer_size_ == 0) {
+template <typename Dtype>
+void ParentWorker<Dtype>::clean() {
+  if (memory_ == NULL || data_size_ == 0) {
     return;
   }
-  int msize = buffer_size_ * (1 + children_size_);
+  union sigval rc_val;
+  rc_val.sival_int = 1;
+  for (int i = 0; i < children_size_; i++) {
+    const pid_t pid = children_[i];
+    sigqueue(pid, SIGTERM, rc_val);
+  }
+  int msize = data_size_ * (1 + children_size_);
   if (munmap(memory_, msize) != 0) {
     LOG(ERROR) << "Release shared memory: fail: " << errno << " @ s=" << msize;
   }
 }
 
+template <typename Dtype>
+void ParentWorker<Dtype>::setInterface(Interface &interface) {
+  interface.setWorkerType(Interface::PARENT);
+  interface.setChildIndex(0);
+}
 
-template <typename DType, typename Ctype>
-ChildWorker::ChildWorker(int child_index, int parent_pid, int data_size,
-    char *memory, const char *parent_memory)
-  : child_index_(child_index), parent_pid_(parent_pid), data_size_(data_size)
-  , memory_(memory), parent_memory_(parent_memory)
+
+template <typename Dtype>
+ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
+    int data_size, char *memory, const char *parent_memory)
+  : Worker<Dtype>(), child_index_(child_index), parent_pid_(parent_pid)
+  , data_size_(data_size), memory_(memory), parent_memory_(parent_memory)
 {
   WorkerData *worker = (WorkerData *)memory_;
-  worker->status = WORKING;
+  worker->status = WorkerData::WORKING;
   worker->pid = getpid();
 
   sigset_t wait_set;
@@ -187,78 +193,87 @@ ChildWorker::ChildWorker(int child_index, int parent_pid, int data_size,
   sigaddset(&wait_set, SIGSYNC);
   sigprocmask(SIG_BLOCK, &wait_set, NULL);
   
-  LOG(INFO) << "Fork a child #" << child_index << ", map: " << memory;
+  LOG(INFO) << "Fork a child #" << child_index << ", map: " << (int*)memory;
   if (Caffe::mode() == Caffe::GPU) {
     int device_id = MPI::GetDevice(child_index);
     LOG(INFO) << "Child #" << child_index << " use the device #" << device_id;
     Caffe::SetDevice(device_id);
   }
+  ::atexit(at_child_exit);
 }
 
-template <typename DType, typename Ctype>
-void ChildWorker::sync(CDataRef data) {
-  static bool _inited = false;
+template <typename Dtype>
+void ChildWorker<Dtype>::sync(CDataRef data) {
   WorkerData *worker = (WorkerData *)memory_;
   BufferUnit *buffer = worker->data;
-  if (!_inited) {
-    InitBufferArray(buffer, data);
-    _inited = true;
-  }
   for (int i = 0; i < data.size(); i++) {
     const int count = data[i]->count();
-    const DType *diff_ptr = data[i]->cpu_diff();
-    caffe_copy(count, cpu_data, (DType *)buffer);
+    const Dtype *diff_ptr = data[i]->cpu_diff();
+    caffe_copy(count, diff_ptr, (Dtype *)buffer);
     buffer = buffer->next(count);
   }
-  worker->status = SYNCING;
+  worker->status = WorkerData::SYNCING;
 
   int sig;
   sigset_t wait_set;
   sigemptyset(&wait_set);
   sigaddset(&wait_set, SIGSYNC);
 
-  volatile WorkerData *const parent_worker = (WorkerData *)parent_memory_;
+  volatile const WorkerData *const parent_worker =
+      (volatile const WorkerData *)parent_memory_;
   union sigval rc_val;
   rc_val.sival_int = 1;
-  sigqueue(parent_id_, SIGSYNC, rc_val);
+  sigqueue(parent_pid_, SIGSYNC, rc_val);
   for (; ; ) {
     sigwait(&wait_set, &sig);
-    if (sig == SIGSYNC && parent_worker->status == SYNCING) {
+    if (sig == SIGSYNC && parent_worker->status == WorkerData::SYNCING) {
       break;
     }
   }
   DLOG(INFO) << "Child #" << child_index_ << ": get merged data";
-  worker->status = WORKING;
+  worker->status = WorkerData::WORKING;
   work(data);
 }
 
-template <typename DType, typename Ctype>
-void ChildWorker::signal(CDataRef data) {
-  volatile WorkerData *const parent_worker = (WorkerData *)parent_memory_;
-  volatile BufferUnit *parent_buffer = parent_worker->data;
+template <typename Dtype>
+void ChildWorker<Dtype>::work(CDataRef data) {
+  volatile const WorkerData *const parent_worker =
+      (volatile const WorkerData *)parent_memory_;
+  volatile const BufferUnit *parent_buffer = parent_worker->data;
   for (int i = 0; i < data.size(); i++) {
     const int count = data[i]->count();
-    DType *data_ptr = data[i]->mutable_cpu_data();
-    caffe_copy(count, (const DType *)parent_buffer, data_ptr);
-    parent_buffer = parent_buffer->next(count);
+    Dtype *data_ptr = data[i]->mutable_cpu_data();
+    caffe_copy(count, (const Dtype *)parent_buffer, data_ptr);
+    parent_buffer = parent_buffer->nextv(count);
   }
+}
+
+template <typename Dtype>
+void ChildWorker<Dtype>::setInterface(Interface &interface) {
+  interface.setWorkerType(Interface::CHILD);
+  interface.setChildIndex(child_index_);
 }
 
 INSTANTIATE_CLASS(ParentWorker);
 INSTANTIATE_CLASS(ChildWorker);
-  
+
+template int Worker<float>::GetParamsSize
+(CDataRef net_params);
+template int Worker<double>::GetParamsSize
+(CDataRef net_params);
+
 }  // namespace mpi
 }  // namespace caffe
 
 using namespace caffe::mpi;
-static ParentWorker<float , vector<shared_ptr<Blob> > > *s_parent_f = NULL;
-static ParentWorker<double, vector<shared_ptr<Blob> > > *s_parent_d = NULL;
+static ParentWorker<float > *s_parent_f = NULL;
+static ParentWorker<double> *s_parent_d = NULL;
 
 static void set_for_clean(int type_size, void *instance) {
   if (type_size == 4) {
-    s_parent_f = (ParentWorker<float , vector<shared_ptr<Blob> > >*)instance;
+    s_parent_f = (ParentWorker<float >*)instance;
   } else if (type_size == 8) {
-    s_parent_d = (ParentWorker<double, vector<shared_ptr<Blob> > >*)instance;
+    s_parent_d = (ParentWorker<double>*)instance;
   }
 }
 
@@ -273,6 +288,11 @@ void clean_at_exit() {
   }
 }
 
-void do_exit() {
-  exit();
+void do_exit(int sig) {
+  exit(1);
 }
+
+void at_child_exit() {
+  LOG(INFO) << "Child #" << caffe::MPI::child_index() << " exit.";
+}
+

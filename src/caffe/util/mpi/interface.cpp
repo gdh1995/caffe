@@ -12,11 +12,9 @@ using caffe::Blob;
 namespace caffe {
 namespace mpi {
 
-Interface mpi;
-
-Interface()
-  : worker_type_(SELF_ONLY), data_partition_(1), model_partition_(1)
-  , device_count(0), device_list(NULL)
+Interface::Interface()
+  : worker_type_(SELF_ONLY), child_index_(0), data_partition_(1)
+  , model_partition_(1), device_count_(0), device_list_(NULL)
 {
 }
 
@@ -45,15 +43,15 @@ bool Interface::check_for_fork() {
 }
 
 template <typename Dtype>
-void *Interface::do_fork(SharedParamsRef<Dtype> net_params) const {
-  const int child_mem_size = Worker::GetParamsSize(net_params);
+void *Interface::do_fork(const vector<shared_ptr<Blob<Dtype> > > &net_params) const {
+  const int child_mem_size = Worker<Dtype>::GetParamsSize(net_params);
   const int shared_mem_size = child_mem_size * (data_partition_ + 1);
   char *shared_mem = (char *)mmap(NULL, shared_mem_size, PROT_READ | PROT_WRITE,
       MAP_SHARED | MAP_ANON, -1, 0);
   if (shared_mem == MAP_FAILED) {
     LOG(ERROR) << "Map shared memory: failed!";
     // one GPU has been selected in Caffe::SetDevice
-    return SELF_ONLY;
+    return new SelfWorker<Dtype>();
   }
 
   pid_t parent_id = getpid();
@@ -64,15 +62,14 @@ void *Interface::do_fork(SharedParamsRef<Dtype> net_params) const {
       LOG(ERROR) << "Fork failed when creating child worker #" << i;
       continue; // TODO: now may go into a dead loop
     } else if (child == 0) {
-      worker_type_ = CHILD;
-      shared_mem += child_mem_size * (i + 1);
-      return new ChildWorker(i, parent_id, child_mem_size, shared_mem);
+      char *self_mem = shared_mem + child_mem_size * (i + 1);
+      return new ChildWorker<Dtype>(i, parent_id, child_mem_size, self_mem,
+          shared_mem);
     }
     children[i] = child;
     i++;
   }
-  worker_type_ = PARENT;
-  return new ParentWorker(device_count_, children, child_mem_size, shared_mem);
+  return new ParentWorker<Dtype>(device_count_, children, child_mem_size, shared_mem);
 }
 
 void Interface::setup_handler(WorkerType type, Handler *func, void *data) {
@@ -88,22 +85,38 @@ void Interface::setup_handler(WorkerType type, Handler *func, void *data) {
     LOG(ERROR) << "Unknown MPI handler type: " << type << " *" << func;
     return;
   }
-  mpi.handlers_[index].push({func, data});
+  HandlerWrapper wrapper = {func, data};
+  mpi.handlers_[index].push_back(wrapper);
 }
 
-void Interface::trigger() {
+void Interface::triggerHandlers() {
   int index;
-  switch(type) {
+  switch(worker_type_) {
   case SELF_ONLY: index = 0; break;
   case PARENT: index = 1; break;
   case CHILD: index = 2; break;
   default:
-    LOG(ERROR) << "Unknown MPI handler type: " << type << " *" << func;
+    LOG(ERROR) << "Unknown MPI handler type: " << worker_type_;
     return;
   }
-  volatile vector<Callback> &handler = handlers_[index];
+  vector<HandlerWrapper> &handler = handlers_[index];
   while (!handler.empty()) {
-    HandlerWrapper wrapper = handler.pop();
+    HandlerWrapper wrapper = handler.back();
+    handler.pop_back();
     wrapper.func(wrapper.data);
   }
 }
+
+
+Interface Interface::mpi;
+template void *Interface::do_fork
+(const vector<shared_ptr<Blob<float> > > &net_params) const;
+template void *Interface::do_fork
+(const vector<shared_ptr<Blob<double> > > &net_params) const;
+
+template class BaseWorker<float>;
+template class BaseWorker<double>;
+
+
+}  // namespace mpi
+}  // namespace caffe

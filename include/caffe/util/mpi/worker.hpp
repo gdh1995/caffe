@@ -6,19 +6,26 @@
 namespace caffe {
 namespace mpi {
 
-template <typename DType, typename Ctype>
-class Worker : public BaseWorker<DType, CType> {
+template <typename Dtype>
+class Worker : public BaseWorker<Dtype> {
  public:
-  struct BufferUnit {
-    DType data[0];
+  typedef typename BaseWorker<Dtype>::CDataRef CDataRef;
+
+  inline Worker(): BaseWorker<Dtype>() {}
+
+  typedef struct BufferUnit {
+    Dtype data[0];
 
     BufferUnit *next(int count) { return (BufferUnit *)(data + count); }
     const BufferUnit *next(int count) const {
       return (const BufferUnit *)(data + count);
     }
-  };
+    volatile const BufferUnit *nextv(int count) const volatile {
+      return (volatile const BufferUnit *)(data + count);
+    }
+  } BufferUnit;
 
-  struct WorkerData {
+  typedef struct WorkerData {
     enum WorkerStatus {WORKING, SYNCING};
     int status, pid;
     BufferUnit data[0];
@@ -29,59 +36,85 @@ class Worker : public BaseWorker<DType, CType> {
     const WorkerData *next(int byte_size) const {
       return (const WorkerData *)(((const char *)this) + byte_size);
     }
-  };
+  } WorkerData;
 
   static int GetParamsSize(CDataRef net_params);
 
   virtual void sync  (CDataRef data);
   virtual void signal(CDataRef data);
 
-  static void InitBufferArray(BufferUnit *buffer, CDataRef data);
-
  private:
   DISABLE_COPY_AND_ASSIGN(Worker);
 };
 
-template <typename DType, typename Ctype>
-class ParentWorker : public Worker<DType, CType> {
+template <typename Dtype>
+class SelfWorker : public Worker<Dtype> {
  public:
+  typedef typename Worker<Dtype>::CDataRef CDataRef;
+  typedef typename Worker<Dtype>::WorkerData WorkerData;
+  typedef typename Worker<Dtype>::BufferUnit BufferUnit;
+
+  inline SelfWorker(): Worker<Dtype>() {}
+  virtual void sync  (CDataRef data) {}
+  virtual void signal(CDataRef data) {}
+  virtual void setInterface(Interface &interface) {
+    interface.setChildIndex(0);
+    interface.setWorkerType(Interface::SELF_ONLY);
+  }
+
+ private:
+  DISABLE_COPY_AND_ASSIGN(SelfWorker);
+};
+
+template <typename Dtype>
+class ParentWorker : public Worker<Dtype> {
+ public:
+  typedef typename Worker<Dtype>::CDataRef CDataRef;
+  typedef typename Worker<Dtype>::WorkerData WorkerData;
+  typedef typename Worker<Dtype>::BufferUnit BufferUnit;
+
   ParentWorker(int children_size, const int *children, int data_size,
       char *memory);
 
   virtual void sync  (CDataRef data);
   virtual void signal(CDataRef data);
+  virtual void setInterface(Interface &interface);
 
-  void check_all_child();
+  bool check_all_child();
   void clean();
   void work(CDataRef data);
 
  protected:
-  const int children_size, data_size_;
+  const int children_size_, data_size_;
   const int * const children_;
   char *const memory_;
   
  private:
-  bool buffer_inited_;
   DISABLE_COPY_AND_ASSIGN(ParentWorker);
 };
 
-template <typename DType, typename Ctype>
-class ChildWorker : public Worker<DType, CType> {
+template <typename Dtype>
+class ChildWorker : public Worker<Dtype> {
  public:
+  typedef typename Worker<Dtype>::CDataRef CDataRef;
+  typedef typename Worker<Dtype>::WorkerData WorkerData;
+  typedef typename Worker<Dtype>::BufferUnit BufferUnit;
+
   ChildWorker(int child_index, int parent_pid, int data_size, char *memory,
       const char *parent_memory);
 
   virtual void sync  (CDataRef data);
-  virtual void signal(CDataRef data);
+  virtual void signal(CDataRef data) {}
+  virtual void setInterface(Interface &interface);
+
   void work(CDataRef data);
 
  protected:
   const int child_index_, parent_pid_, data_size_;
   char *const memory_; 
-  char *parent_memory_;
+  volatile const char *const parent_memory_;
 
  private:
-  bool buffer_inited_;
   DISABLE_COPY_AND_ASSIGN(ChildWorker);
 };
 
