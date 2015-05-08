@@ -23,22 +23,17 @@ bool Interface::check_for_fork() {
   if (copy <= 1) {
     return false;
   }
-  if (Caffe::mode() == Caffe::GPU) {
-    if (device_count_ >= copy) {
-      device_count_ = copy;
-    } else if (device_count_ > 1) {
+  if (Caffe::mode() == Caffe::GPU && device_count_ < copy) {
+    if (device_count_ > 1) {
       LOG(ERROR) << "Parallel: should give " << copy << "devices";
-      return false;
-    } else {
-      int *new_list = new int [copy];
-      for (int i = 0; i < copy; i++) {
-        new_list[i] = i;
-      }
-      device_list_ = new_list;
     }
-  } else {
-    device_count_ = copy;
+    int *new_list = new int [copy];
+    for (int i = 0; i < copy; i++) {
+      new_list[i] = i;
+    }
+    device_list_ = new_list;
   }
+  device_count_ = copy;
   return true;
 }
 
