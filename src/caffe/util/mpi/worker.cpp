@@ -243,7 +243,7 @@ void ChildWorker<Dtype>::work(CDataRef data) {
   for (int i = 0; i < data.size(); i++) {
     const int count = data[i]->count();
     Dtype *data_ptr = data[i]->mutable_cpu_data();
-    memcpy(data_ptr, parent_buffer, sizeof(Dtype) * count);
+    memcpy(data_ptr, (Dtype *)parent_buffer->data, sizeof(Dtype) * count);
     parent_buffer = parent_buffer->nextv(count);
   }
 }
