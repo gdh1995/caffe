@@ -15,7 +15,7 @@ static void clean_at_exit();
 static void do_exit(int sig);
 static void at_child_exit();
 
-#define SIGSYNC (SIGUSR2)
+const int SIGSYNC = SIGRTMIN + 1;
 
 namespace caffe {
 namespace mpi {
@@ -155,7 +155,7 @@ void ParentWorker<Dtype>::clean() {
     return;
   }
   union sigval rc_val;
-  rc_val.sival_int = 1;
+  rc_val.sival_int = -2;
   for (int i = 0; i < children_size_; i++) {
     const pid_t pid = children_[i];
     sigqueue(pid, SIGTERM, rc_val);
