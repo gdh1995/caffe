@@ -7,7 +7,7 @@
 namespace caffe {
 namespace mpi {
 
-const int SIGSYNC;
+extern const int SIGSYNC;
 
 class Interface;
 

@@ -1,6 +1,7 @@
 #include <boost/thread.hpp>
 #include "caffe/internal_thread.hpp"
 #include "caffe/util/mpi/interface.hpp"
+#include <signal.h>
 
 namespace caffe {
 
@@ -16,7 +17,7 @@ void InternalThread::EntryWrapper() {
   {
     sigset_t wait_set;
     sigemptyset(&wait_set);
-    sigaddset(&wait_set, MPI::SIGSYNC);
+    sigaddset(&wait_set, mpi::SIGSYNC);
     sigprocmask(SIG_BLOCK, &wait_set, NULL);
   }
   this->InternalThreadEntry();
