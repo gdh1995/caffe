@@ -490,7 +490,7 @@ void SGDSolver<Dtype>::ComputeUpdateValue() {
   Dtype rate = GetLearningRate();
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
     LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
-    LOG(INFO) << "    Sync = " << (sync_time_ / 1000) << " ms.";
+    LOG(INFO) << "        Sync = " << (sync_time_ / 1000) << " ms.";
     sync_time_ = 0;
   }
   ClipGradients();
