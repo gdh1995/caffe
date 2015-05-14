@@ -13,6 +13,7 @@
 #include "caffe/util/io.hpp"
 #include "caffe/util/math_functions.hpp"
 #include "caffe/util/rng.hpp"
+#include "caffe/util/mpi/interface.hpp"
 
 namespace caffe {
 
@@ -25,6 +26,7 @@ template <typename Dtype>
 void DataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
   // Initialize DB
+  ind_ = 0;
   db_.reset(db::GetDB(this->layer_param_.data_param().backend()));
   db_->Open(this->layer_param_.data_param().source(), db::READ);
   cursor_.reset(db_->NewCursor());
@@ -158,6 +160,7 @@ void DataLayer<Dtype>::InternalThreadEntry() {
   DLOG(INFO) << "Prefetch batch: " << batch_timer.MilliSeconds() << " ms.";
   DLOG(INFO) << "     Read time: " << read_time / 1000 << " ms.";
   DLOG(INFO) << "Transform time: " << trans_time / 1000 << " ms.";
+  ind_ += batch_size;
 }
 
 INSTANTIATE_CLASS(DataLayer);

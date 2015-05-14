@@ -102,7 +102,11 @@ class DataLayer : public BasePrefetchingDataLayer<Dtype> {
   virtual inline void skip(int count) {
     for (int i = count; 0 <= --i; ) {
       cursor_->Next();
+      if (!cursor_->valid()) {
+        cursor_->SeekToFirst();
+      }
     }
+    ind_ += count;
   }
 
  protected:
@@ -110,6 +114,7 @@ class DataLayer : public BasePrefetchingDataLayer<Dtype> {
 
   shared_ptr<db::DB> db_;
   shared_ptr<db::Cursor> cursor_;
+  int ind_;
 };
 
 /**
