@@ -41,8 +41,9 @@ template <typename Dtype>
 void *Interface::do_fork(const vector<shared_ptr<Blob<Dtype> > > &net_params) const {
   const int child_mem_size = Worker<Dtype>::GetParamsSize(net_params);
   const int shared_mem_size = child_mem_size * data_partition_;
-  char *shared_mem = (char *)mmap(NULL, shared_mem_size, PROT_READ | PROT_WRITE,
-      MAP_SHARED | MAP_ANON, -1, 0);
+  LOG(INFO) << "Shared memory: " << data_partition_ << " * " << child_mem_size;
+  char *const shared_mem = (char *)mmap(NULL, shared_mem_size,
+      PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
   if (shared_mem == MAP_FAILED) {
     LOG(ERROR) << "Map shared memory: failed!";
     // one GPU has been selected in Caffe::SetDevice

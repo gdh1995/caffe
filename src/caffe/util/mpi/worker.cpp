@@ -49,10 +49,6 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
   : Worker<Dtype>(), children_size_(children_size), data_size_(data_size)
   , children_(children), memory_(memory)
 {
-  WorkerData *worker = (WorkerData *)memory_;
-  worker->status = WorkerData::WORKING;
-  worker->pid = getpid();
-
   sigset_t wait_set;
   sigemptyset(&wait_set);
   sigaddset(&wait_set, SIGSYNC);
@@ -66,12 +62,10 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
   ::atexit(clean_at_exit);
   
   Caffe::set_mode(Caffe::CPU); // TODO: give some GPU resources
-  LOG(INFO) << "Shared memory: " << children_size + 1 << " * " << data_size_;
 }
 
 template <typename Dtype>
 void ParentWorker<Dtype>::sync(CDataRef data) {
-  WorkerData *worker = (WorkerData *)memory_;
   int sig, children_ready_num;
   sigset_t wait_set;
   sigemptyset(&wait_set);
@@ -87,6 +81,7 @@ void ParentWorker<Dtype>::sync(CDataRef data) {
       break;
     }
   }
+  WorkerData *worker = (WorkerData *)memory_;
   worker->status = WorkerData::WORKING;
   work(data);
 }
@@ -101,7 +96,6 @@ void ParentWorker<Dtype>::work(CDataRef data) {
   for (int i = 1; i < children_size_; i++) {
     child_worker = child_worker->next(data_size_);
     child_buffer = child_worker->data;
-    //LOG(INFO) << "  PX " << i << ": " << child_worker << child_buffer;
     caffe_axpy(count, (Dtype)1, (const Dtype *)child_buffer, (Dtype *)buffer);
   }
   caffe_scal(count, (Dtype)1 / children_size_, (Dtype *)buffer);
@@ -138,10 +132,10 @@ template <typename Dtype>
 bool ParentWorker<Dtype>::check_all_child() {
   const WorkerData *worker = (const WorkerData *)memory_;
   for (int i = 0; i < children_size_; i++) {
-    worker = worker->next(data_size_);
     if (worker->status != WorkerData::SYNCING) {
       return false;
     }
+    worker = worker->next(data_size_);
   }
   return true;
 }
@@ -157,7 +151,7 @@ void ParentWorker<Dtype>::clean() {
     const pid_t pid = children_[i];
     sigqueue(pid, SIGTERM, rc_val);
   }
-  int msize = data_size_ * (1 + children_size_);
+  int msize = data_size_ * children_size_;
   if (munmap(memory_, msize) != 0) {
     LOG(ERROR) << "Release shared memory: fail: " << errno << " @ s=" << msize;
   }
