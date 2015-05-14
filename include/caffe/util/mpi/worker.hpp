@@ -29,6 +29,7 @@ class Worker : public BaseWorker<Dtype> {
     enum WorkerStatus {WORKING, SYNCING};
     int status, pid;
     BufferUnit data[0];
+    static const int BufferDataOffset = 8;
 
     WorkerData *next(int byte_size) {
       return (WorkerData *)(((char *)this) + byte_size);

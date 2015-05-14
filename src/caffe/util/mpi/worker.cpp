@@ -22,7 +22,7 @@ namespace mpi {
 
 template <typename Dtype>
 int Worker<Dtype>::GetParamsSize(CDataRef net_params) {
-  int sum = sizeof(int) * 2;
+  int sum = WorkerData::BufferDataOffset;
   for (int i = 0; i < net_params.size(); i++) {
     Blob<Dtype> *blob = net_params[i].get();
     int len = sizeof(Dtype) * blob->count();
@@ -93,14 +93,11 @@ void ParentWorker<Dtype>::sync(CDataRef data) {
 
 template <typename Dtype>
 void ParentWorker<Dtype>::work(CDataRef data) {
-  WorkerData *worker = (WorkerData *)memory_;
+  WorkerData *worker = ((WorkerData *)memory_);
   BufferUnit *buffer = worker->data;
-  const WorkerData *child_worker = worker->next(data_size_);
+  const WorkerData *child_worker = worker;
   const BufferUnit *child_buffer = child_worker->data;
-  const int count = (data_size_ - 2 * sizeof(int)) / sizeof(Dtype);
-  //LOG(INFO) << "Parent working: ds = " << count;
-  //LOG(INFO) << "  CP" << buffer << child_worker << child_buffer;
-  caffe_copy(count, (const Dtype *)child_buffer, (Dtype *)buffer);
+  const int count = (data_size_ - WorkerData::BufferDataOffset) / sizeof(Dtype);
   for (int i = 1; i < children_size_; i++) {
     child_worker = child_worker->next(data_size_);
     child_buffer = child_worker->data;

@@ -40,7 +40,7 @@ bool Interface::check_for_fork() {
 template <typename Dtype>
 void *Interface::do_fork(const vector<shared_ptr<Blob<Dtype> > > &net_params) const {
   const int child_mem_size = Worker<Dtype>::GetParamsSize(net_params);
-  const int shared_mem_size = child_mem_size * (data_partition_ + 1);
+  const int shared_mem_size = child_mem_size * data_partition_;
   char *shared_mem = (char *)mmap(NULL, shared_mem_size, PROT_READ | PROT_WRITE,
       MAP_SHARED | MAP_ANON, -1, 0);
   if (shared_mem == MAP_FAILED) {
@@ -57,7 +57,7 @@ void *Interface::do_fork(const vector<shared_ptr<Blob<Dtype> > > &net_params) co
       LOG(ERROR) << "Fork failed when creating child worker #" << i;
       continue; // TODO: now may go into a dead loop
     } else if (child == 0) {
-      char *self_mem = shared_mem + child_mem_size * (i + 1);
+      char *self_mem = shared_mem + child_mem_size * i;
       return new ChildWorker<Dtype>(i, parent_id, child_mem_size, self_mem,
           shared_mem);
     }
