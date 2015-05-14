@@ -209,7 +209,7 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
   for (int i = 0; i < data.size(); i++) {
     const int count = data[i]->count();
     const Dtype *diff_ptr = data[i]->cpu_diff();
-    caffe_copy(count, diff_ptr, (Dtype *)buffer);
+    memcpy(buffer, diff_ptr, sizeof(Dtype) * count);
     buffer = buffer->next(count);
   }
   worker->status = WorkerData::SYNCING;
@@ -243,7 +243,7 @@ void ChildWorker<Dtype>::work(CDataRef data) {
   for (int i = 0; i < data.size(); i++) {
     const int count = data[i]->count();
     Dtype *data_ptr = data[i]->mutable_cpu_data();
-    caffe_copy(count, (const Dtype *)parent_buffer, data_ptr);
+    memcpy(data_ptr, parent_buffer, sizeof(Dtype) * count);
     parent_buffer = parent_buffer->nextv(count);
   }
 }
