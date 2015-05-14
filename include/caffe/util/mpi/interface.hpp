@@ -48,8 +48,8 @@ class Interface {
   static WorkerType fork(const SolverParameter& param,
       const vector<shared_ptr<Blob<Dtype> > > &net_params) {
     int data_copy = param.data_parallel(), model_copy = param.model_parallel();
-    CHECK_GE(data_copy, 1) << "Copy number is invalid.";
-    CHECK_GE(model_copy, 1) << "Copy number is invalid.";
+    CHECK_GE(data_copy, 1) << "Data parallel number is invalid.";
+    CHECK_GE(model_copy, 1) << "Model parallel number is invalid.";
     mpi.data_partition_ = data_copy;
     mpi.model_partition_ = model_copy;
     if (!mpi.check_for_fork()) {
