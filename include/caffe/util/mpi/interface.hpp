@@ -38,7 +38,7 @@ class Interface {
     mpi.device_count_ = count;
   }
   static inline int GetDevice(const int index) {
-    return mpi.device_list_ != NULL ? mpi.device_list_[index] : -1;
+    return mpi.device_list_[index];
   }
 
   static void setup_handler(WorkerType type, Handler *func, void *data);

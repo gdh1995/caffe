@@ -129,11 +129,11 @@ void Caffe::SetDevice(const int device_id) {
   }
   // The call to cudaSetDevice must come before any calls to Get, which
   // may perform initialization using the GPU.
-  CUDA_CHECK(cudaSetDevice(device_id));
   if (Get().cublas_handle_) CUBLAS_CHECK(cublasDestroy(Get().cublas_handle_));
   if (Get().curand_generator_) {
     CURAND_CHECK(curandDestroyGenerator(Get().curand_generator_));
   }
+  CUDA_CHECK(cudaSetDevice(device_id));
   CUBLAS_CHECK(cublasCreate(&Get().cublas_handle_));
   CURAND_CHECK(curandCreateGenerator(&Get().curand_generator_,
       CURAND_RNG_PSEUDO_DEFAULT));
@@ -165,20 +165,14 @@ void Caffe::SetDevice(const int *id_list, const int count) {
     LOG(ERROR) << "Devices: all are invalid";
     MPI::SetDeviceList(NULL, 0);
   } else if (last == 1) {
-    cudaSetDevice(-1); // TODO: test and remove
     const int new_id = new_list[0];
-// #ifdef _DEBUG
-    int current_device = -1;
-    cudaGetDevice(&current_device);
-    if (current_device == new_id) {
-      LOG(INFO) << "Devices: Get a device set but not inited: " << new_id;
-    }
-// #endif
     SetDevice(new_id);
     MPI::SetDeviceList(NULL, 1);
   } else {
     MPI::SetDeviceList(new_list, device_count);
+    return;
   }
+  delete [] new_list;
 }
 
 void Caffe::DeviceQuery() {
