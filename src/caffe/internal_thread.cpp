@@ -1,5 +1,6 @@
 #include <boost/thread.hpp>
 #include "caffe/internal_thread.hpp"
+#include "caffe/util/mpi/interface.hpp"
 
 namespace caffe {
 
@@ -11,6 +12,15 @@ bool InternalThread::is_started() const {
   return thread_.get() != NULL && thread_->joinable();
 }
 
+void InternalThread::EntryWrapper() {
+  {
+    sigset_t wait_set;
+    sigemptyset(&wait_set);
+    sigaddset(&wait_set, MPI::SIGSYNC);
+    sigprocmask(SIG_BLOCK, &wait_set, NULL);
+  }
+  this->InternalThreadEntry();
+}
 
 bool InternalThread::StartInternalThread() {
   if (!WaitForInternalThreadToExit()) {
@@ -18,7 +28,7 @@ bool InternalThread::StartInternalThread() {
   }
   try {
     thread_.reset(
-        new boost::thread(&InternalThread::InternalThreadEntry, this));
+        new boost::thread(&InternalThread::EntryWrapper, this));
   } catch (...) {
     return false;
   }

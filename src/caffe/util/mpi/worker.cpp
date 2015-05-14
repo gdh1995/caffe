@@ -15,10 +15,11 @@ static void clean_at_exit();
 static void do_exit(int sig);
 static void at_child_exit();
 
-const int SIGSYNC = SIGRTMIN + 1;
 
 namespace caffe {
 namespace mpi {
+
+const int SIGSYNC = SIGRTMIN + 1;
 
 template <typename Dtype>
 int Worker<Dtype>::GetParamsSize(CDataRef net_params) {
@@ -81,8 +82,6 @@ void ParentWorker<Dtype>::sync(CDataRef data) {
       break;
     }
   }
-  WorkerData *worker = (WorkerData *)memory_;
-  worker->status = WorkerData::WORKING;
   work(data);
 }
 
@@ -93,6 +92,7 @@ void ParentWorker<Dtype>::work(CDataRef data) {
   const WorkerData *child_worker = worker;
   const BufferUnit *child_buffer = child_worker->data;
   const int count = (data_size_ - WorkerData::BufferDataOffset) / sizeof(Dtype);
+  worker->status = WorkerData::WORKING;
   for (int i = 1; i < children_size_; i++) {
     child_worker = child_worker->next(data_size_);
     child_buffer = child_worker->data;
@@ -200,19 +200,16 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
   }
   worker->status = WorkerData::SYNCING;
 
-  int sig;
   sigset_t wait_set;
   sigemptyset(&wait_set);
   sigaddset(&wait_set, SIGSYNC);
 
-  volatile const WorkerData *const parent_worker =
-      (volatile const WorkerData *)parent_memory_;
   union sigval rc_val;
   rc_val.sival_int = 1;
   sigqueue(parent_pid_, SIGSYNC, rc_val);
-  for (; ; ) {
+  for (int sig; ; ) {
     sigwait(&wait_set, &sig);
-    if (sig == SIGSYNC && parent_worker->status == WorkerData::SYNCING) {
+    if (sig == SIGSYNC) {
       break;
     }
   }

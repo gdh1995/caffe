@@ -34,6 +34,8 @@ class InternalThread {
       with the code you want your thread to run. */
   virtual void InternalThreadEntry() {}
 
+ private:
+  void EntryWrapper();
   shared_ptr<boost::thread> thread_;
 };
 

@@ -7,6 +7,8 @@
 namespace caffe {
 namespace mpi {
 
+const int SIGSYNC;
+
 class Interface;
 
 template <typename Dtype>
