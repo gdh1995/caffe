@@ -92,18 +92,6 @@ void* Caffe::RNG::generator() {
 Caffe::Caffe()
     : cublas_handle_(NULL), curand_generator_(NULL), random_generator_(),
     mode_(Caffe::CPU) {
-  // Try to create a cublas handler, and report an error if failed (but we will
-  // keep the program running as one might just want to run CPU code).
-  if (cublasCreate(&cublas_handle_) != CUBLAS_STATUS_SUCCESS) {
-    LOG(ERROR) << "Cannot create Cublas handle. Cublas won't be available.";
-  }
-  // Try to create a curand handler.
-  if (curandCreateGenerator(&curand_generator_, CURAND_RNG_PSEUDO_DEFAULT)
-      != CURAND_STATUS_SUCCESS ||
-      curandSetPseudoRandomGeneratorSeed(curand_generator_, cluster_seedgen())
-      != CURAND_STATUS_SUCCESS) {
-    LOG(ERROR) << "Cannot create Curand generator. Curand won't be available.";
-  }
 }
 
 Caffe::~Caffe() {
@@ -135,7 +123,9 @@ void Caffe::SetDevice(const int device_id) {
   int current_device;
   CUDA_CHECK(cudaGetDevice(&current_device));
   if (current_device == device_id) {
-    return;
+    if (Get().cublas_handle_) {
+      return;
+    }
   }
   // The call to cudaSetDevice must come before any calls to Get, which
   // may perform initialization using the GPU.
@@ -149,6 +139,8 @@ void Caffe::SetDevice(const int device_id) {
       CURAND_RNG_PSEUDO_DEFAULT));
   CURAND_CHECK(curandSetPseudoRandomGeneratorSeed(Get().curand_generator_,
       cluster_seedgen()));
+  LOG(INFO) << "Init CUDA Device #" << device_id << " handlers: "
+      << Get().cublas_handle_ << " | " << Get().curand_generator_;
 }
 
 void Caffe::SetDevice(const int *id_list, const int count) {
