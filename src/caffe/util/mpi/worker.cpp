@@ -15,6 +15,8 @@ static void clean_at_exit();
 static void do_exit(int sig);
 static void at_child_exit();
 
+static void do_sig_sync(int sig);
+static int counter_sig_sync;
 
 namespace caffe {
 namespace mpi {
@@ -60,6 +62,7 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
   ::signal(SIGINT, do_exit);
   ::signal(SIGTERM, do_exit);
   ::signal(SIGQUIT, do_exit);
+  ::signal(SIGSYNC, do_sig_sync);
   ::atexit(clean_at_exit);
   
   Caffe::set_mode(Caffe::CPU); // TODO: give some GPU resources
@@ -67,19 +70,18 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
 
 template <typename Dtype>
 void ParentWorker<Dtype>::sync(CDataRef data) {
-  int sig, children_ready_num = 0;
   sigset_t wait_set;
   sigemptyset(&wait_set);
   sigaddset(&wait_set, SIGSYNC);
-  for (; ; ) {
+  counter_sig_sync = 0;
+  for (int sig; ; ) {
     if (0 != sigwait(&wait_set, &sig)) {
+    } else if (sig == SIGSYNC) {
+      ++counter_sig_sync;
+    } else {
       continue;
     }
-    if (sig != SIGSYNC) {
-      continue;
-    }
-    ++children_ready_num;
-    if (children_ready_num >= children_size_ && check_all_child()) {
+    if (counter_sig_sync >= children_size_ && check_all_child()) {
       break;
     }
   }
@@ -179,6 +181,7 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
   sigemptyset(&wait_set);
   sigaddset(&wait_set, SIGSYNC);
   sigprocmask(SIG_BLOCK, &wait_set, NULL);
+  ::signal(SIGSYNC, do_sig_sync);
   
   LOG(INFO) << "Fork a child #" << child_index << ", map: " << (int*)memory;
   if (Caffe::mode() == Caffe::GPU) {
@@ -207,12 +210,14 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
 
   union sigval rc_val;
   rc_val.sival_int = 1;
+  counter_sig_sync = 0;
   sigqueue(parent_pid_, SIGSYNC, rc_val);
   for (int sig; ; ) {
     if (0 != sigwait(&wait_set, &sig)) {
-      continue;
+    } else if (sig == SIGSYNC) {
+      ++counter_sig_sync;
     }
-    if (sig == SIGSYNC) {
+    if (counter_sig_sync > 0) {
       break;
     }
   }
@@ -281,3 +286,10 @@ void at_child_exit() {
   LOG(INFO) << "Child #" << caffe::MPI::child_index() << " exit.";
 }
 
+void do_sig_sync(int sig) {
+  sigset_t wait_set;
+  sigemptyset(&wait_set);
+  sigaddset(&wait_set, SIGSYNC);
+  sigprocmask(SIG_BLOCK, &wait_set, NULL);
+  raise(SIGSYNC);
+}
