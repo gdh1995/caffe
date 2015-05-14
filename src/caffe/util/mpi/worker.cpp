@@ -87,7 +87,6 @@ void ParentWorker<Dtype>::sync(CDataRef data) {
       break;
     }
   }
-  DLOG(INFO) << "All children are waiting to sync.";
   worker->status = WorkerData::WORKING;
   work(data);
 }
@@ -129,17 +128,13 @@ void ParentWorker<Dtype>::signal(CDataRef data) {
     buffer = buffer->next(count);
   }
   worker->status = WorkerData::SYNCING;
-  
-  std::ostringstream oss;
-  oss << "Parent: send signal to";
+
   union sigval rc_val;
   rc_val.sival_int = 2;
   for (int i = 0; i < children_size_; i++) {
     const pid_t pid = children_[i];
-    oss << " " << pid;
     sigqueue(pid, SIGSYNC, rc_val);
   }
-  DLOG(INFO) << oss.str();
 }
 
 template <typename Dtype>
@@ -230,7 +225,6 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
       break;
     }
   }
-  DLOG(INFO) << "Child #" << child_index_ << ": get merged data";
   worker->status = WorkerData::WORKING;
   work(data);
 }
