@@ -67,13 +67,14 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
 
 template <typename Dtype>
 void ParentWorker<Dtype>::sync(CDataRef data) {
-  int sig, children_ready_num;
+  int sig, children_ready_num = 0;
   sigset_t wait_set;
   sigemptyset(&wait_set);
   sigaddset(&wait_set, SIGSYNC);
-  children_ready_num = 0;
   for (; ; ) {
-    sigwait(&wait_set, &sig);
+    if (0 != sigwait(&wait_set, &sig)) {
+      continue;
+    }
     if (sig != SIGSYNC) {
       continue;
     }
@@ -208,7 +209,9 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
   rc_val.sival_int = 1;
   sigqueue(parent_pid_, SIGSYNC, rc_val);
   for (int sig; ; ) {
-    sigwait(&wait_set, &sig);
+    if (0 != sigwait(&wait_set, &sig)) {
+      continue;
+    }
     if (sig == SIGSYNC) {
       break;
     }
