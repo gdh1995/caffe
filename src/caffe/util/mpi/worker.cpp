@@ -16,6 +16,7 @@ static void clean_at_exit();
 static void at_child_exit();
 
 static void do_sig_sync(int sig);
+static pthread_t main_thread_id;
 static int counter_sig_sync;
 
 namespace caffe {
@@ -58,9 +59,11 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
   ::signal(SIGINT, exit);
   ::signal(SIGTERM, exit);
   ::signal(SIGQUIT, exit);
+  main_thread_id = pthread_self();
   ::signal(SIGSYNC, do_sig_sync);
   
   Caffe::set_mode(Caffe::CPU); // TODO: give some GPU resources
+  LOG(INFO) << "Wait: signal SYNC is " << SIGSYNC;
 }
 
 template <typename Dtype>
@@ -69,17 +72,22 @@ void ParentWorker<Dtype>::sync(CDataRef data) {
   sigemptyset(&wait_set);
   sigaddset(&wait_set, SIGSYNC);
   counter_sig_sync = 0;
+  LOG(INFO) << "Wait: start";
   for (int sig; ; ) {
     if (0 != sigwait(&wait_set, &sig)) {
+      LOG(INFO) << "Wait: get interrupted";
     } else if (sig == SIGSYNC) {
+      LOG(INFO) << "Wait: get SIGSYNC";
       ++counter_sig_sync;
     } else {
+      LOG(INFO) << "Wait: get an other signal " << sig;
       continue;
     }
     if (counter_sig_sync >= children_size_ && check_all_child()) {
       break;
     }
   }
+  LOG(INFO) << "Wait: end";
   work(data);
 }
 
@@ -152,6 +160,8 @@ void ParentWorker<Dtype>::clean() {
   int msize = data_size_ * children_size_;
   if (munmap(memory_, msize) != 0) {
     LOG(ERROR) << "Release shared memory: fail: " << errno << " @ s=" << msize;
+  } else {
+    LOG(INFO) << "Release shared memory: " << msize;
   }
 }
 
@@ -172,6 +182,7 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
   worker->status = WorkerData::WORKING;
   worker->pid = getpid();
 
+  main_thread_id = pthread_self();
   ::signal(SIGSYNC, do_sig_sync);
   
   LOG(INFO) << "Fork a child #" << child_index << ", map: " << (int*)memory;
@@ -182,6 +193,7 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
   }
   ::signal(SIGTERM, exit);
   ::atexit(at_child_exit);
+  LOG(INFO) << "Wait: signal SYNC is " << SIGSYNC;
 }
 
 template <typename Dtype>
@@ -203,16 +215,20 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
   union sigval rc_val;
   rc_val.sival_int = 1;
   counter_sig_sync = 0;
+  LOG(INFO) << "Wait: start";
   sigqueue(parent_pid_, SIGSYNC, rc_val);
   for (int sig; ; ) {
     if (0 != sigwait(&wait_set, &sig)) {
+      LOG(INFO) << "Wait: get interrupted";
     } else if (sig == SIGSYNC) {
+      LOG(INFO) << "Wait: get SIGSYNC";
       ++counter_sig_sync;
     }
     if (counter_sig_sync > 0) {
       break;
     }
   }
+  LOG(INFO) << "Wait: end";
   worker->status = WorkerData::WORKING;
   work(data);
 }
@@ -275,11 +291,12 @@ void at_child_exit() {
 }
 
 void do_sig_sync(int sig) {
-  // sigset_t wait_set;
-  // sigemptyset(&wait_set);
-  // sigaddset(&wait_set, SIGSYNC);
-  // pthread_sigmask(SIG_BLOCK, &wait_set, NULL);
-  raise(SIGSYNC);
-  ++counter_sig_sync;
-  LOG(INFO) << "Wait: Proc fail to block SIGSYNC: " << sig;
+  sigset_t wait_set;
+  sigemptyset(&wait_set);
+  sigaddset(&wait_set, SIGSYNC);
+  pthread_sigmask(SIG_BLOCK, &wait_set, NULL);
+  union sigval rc_val;
+  rc_val.sival_int = 2;
+  pthread_sigqueue(main_thread_id, SIGSYNC, rc_val);
+  LOG(INFO) << "Wait: this thread fail to block SIGSYNC: " << sig;
 }
