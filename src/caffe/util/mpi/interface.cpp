@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include <cstdlib>
+#include <signal.h>
 #include <pthread.h>
 
 #include "caffe/util/mpi/interface.hpp"

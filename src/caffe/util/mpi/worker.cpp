@@ -17,7 +17,6 @@ static void at_child_exit();
 
 static void do_sig_sync(int sig);
 static pthread_t main_thread_id;
-static int counter_sig_sync;
 
 namespace caffe {
 namespace mpi {
@@ -71,23 +70,17 @@ void ParentWorker<Dtype>::sync(CDataRef data) {
   sigset_t wait_set;
   sigemptyset(&wait_set);
   sigaddset(&wait_set, SIGSYNC);
-  counter_sig_sync = 0;
-  LOG(INFO) << "Wait: start";
-  for (int sig; ; ) {
+  for (int sig, counter_sig_sync = 0; ; ) {
     if (0 != sigwait(&wait_set, &sig)) {
-      LOG(INFO) << "Wait: get interrupted";
     } else if (sig == SIGSYNC) {
-      LOG(INFO) << "Wait: get SIGSYNC";
       ++counter_sig_sync;
     } else {
-      LOG(INFO) << "Wait: get an other signal " << sig;
       continue;
     }
     if (counter_sig_sync >= children_size_ && check_all_child()) {
       break;
     }
   }
-  LOG(INFO) << "Wait: end";
   work(data);
 }
 
@@ -214,21 +207,13 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
 
   union sigval rc_val;
   rc_val.sival_int = 1;
-  counter_sig_sync = 0;
-  LOG(INFO) << "Wait: start";
   sigqueue(parent_pid_, SIGSYNC, rc_val);
   for (int sig; ; ) {
     if (0 != sigwait(&wait_set, &sig)) {
-      LOG(INFO) << "Wait: get interrupted";
     } else if (sig == SIGSYNC) {
-      LOG(INFO) << "Wait: get SIGSYNC";
-      ++counter_sig_sync;
-    }
-    if (counter_sig_sync > 0) {
       break;
     }
   }
-  LOG(INFO) << "Wait: end";
   worker->status = WorkerData::WORKING;
   work(data);
 }
@@ -296,7 +281,7 @@ void do_sig_sync(int sig) {
   sigaddset(&wait_set, SIGSYNC);
   pthread_sigmask(SIG_BLOCK, &wait_set, NULL);
   union sigval rc_val;
-  rc_val.sival_int = 2;
+  rc_val.sival_int = 1;
   pthread_sigqueue(main_thread_id, SIGSYNC, rc_val);
-  LOG(INFO) << "Wait: this thread fail to block SIGSYNC: " << sig;
+  DLOG(INFO) << "Wait: this thread fail to block SIGSYNC: " << sig;
 }
