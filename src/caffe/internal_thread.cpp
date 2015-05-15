@@ -14,12 +14,6 @@ bool InternalThread::is_started() const {
 }
 
 void InternalThread::EntryWrapper() {
-  {
-    sigset_t wait_set;
-    sigemptyset(&wait_set);
-    sigaddset(&wait_set, mpi::SIGSYNC);
-    sigprocmask(SIG_BLOCK, &wait_set, NULL);
-  }
   this->InternalThreadEntry();
 }
 

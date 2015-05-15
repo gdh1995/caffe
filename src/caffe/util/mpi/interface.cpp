@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include <cstdlib>
+#include <pthread.h>
 
 #include "caffe/util/mpi/interface.hpp"
 #include "caffe/util/mpi/worker.hpp"
@@ -49,6 +50,11 @@ void *Interface::do_fork(const vector<shared_ptr<Blob<Dtype> > > &net_params) co
     // one GPU has been selected in Caffe::SetDevice
     return new SelfWorker<Dtype>();
   }
+
+  sigset_t wait_set;
+  sigemptyset(&wait_set);
+  sigaddset(&wait_set, SIGSYNC);
+  pthread_sigmask(SIG_BLOCK, &wait_set, NULL);
 
   pid_t parent_id = getpid();
   int *children = new int[device_count_];

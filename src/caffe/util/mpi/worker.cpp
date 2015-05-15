@@ -6,13 +6,13 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include <signal.h>
+#include <pthread.h>
 
 #include "caffe/util/mpi/worker.hpp"
 #include "caffe/blob.hpp"
 
 static void set_for_clean(int type_size, void *instance);
 static void clean_at_exit();
-static void do_exit(int sig);
 static void at_child_exit();
 
 static void do_sig_sync(int sig);
@@ -51,19 +51,14 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
     int data_size, char *memory)
   : Worker<Dtype>(), children_size_(children_size), data_size_(data_size)
   , children_(children), memory_(memory)
-{
-  sigset_t wait_set;
-  sigemptyset(&wait_set);
-  sigaddset(&wait_set, SIGSYNC);
-  sigprocmask(SIG_BLOCK, &wait_set, NULL);
-  
+{ 
   set_for_clean(sizeof(Dtype), this);
-  ::signal(SIGHUP, do_exit);
-  ::signal(SIGINT, do_exit);
-  ::signal(SIGTERM, do_exit);
-  ::signal(SIGQUIT, do_exit);
-  ::signal(SIGSYNC, do_sig_sync);
   ::atexit(clean_at_exit);
+  ::signal(SIGHUP, exit);
+  ::signal(SIGINT, exit);
+  ::signal(SIGTERM, exit);
+  ::signal(SIGQUIT, exit);
+  ::signal(SIGSYNC, do_sig_sync);
   
   Caffe::set_mode(Caffe::CPU); // TODO: give some GPU resources
 }
@@ -177,10 +172,6 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
   worker->status = WorkerData::WORKING;
   worker->pid = getpid();
 
-  sigset_t wait_set;
-  sigemptyset(&wait_set);
-  sigaddset(&wait_set, SIGSYNC);
-  sigprocmask(SIG_BLOCK, &wait_set, NULL);
   ::signal(SIGSYNC, do_sig_sync);
   
   LOG(INFO) << "Fork a child #" << child_index << ", map: " << (int*)memory;
@@ -189,6 +180,7 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
     Caffe::SetDevice(device_id);
     LOG(INFO) << "Child #" << child_index << " use the device #" << device_id;
   }
+  ::signal(SIGTERM, exit);
   ::atexit(at_child_exit);
 }
 
@@ -278,18 +270,16 @@ void clean_at_exit() {
   }
 }
 
-void do_exit(int sig) {
-  exit(1);
-}
-
 void at_child_exit() {
   LOG(INFO) << "Child #" << caffe::MPI::child_index() << " exit.";
 }
 
 void do_sig_sync(int sig) {
-  sigset_t wait_set;
-  sigemptyset(&wait_set);
-  sigaddset(&wait_set, SIGSYNC);
-  sigprocmask(SIG_BLOCK, &wait_set, NULL);
+  // sigset_t wait_set;
+  // sigemptyset(&wait_set);
+  // sigaddset(&wait_set, SIGSYNC);
+  // pthread_sigmask(SIG_BLOCK, &wait_set, NULL);
   raise(SIGSYNC);
+  ++counter_sig_sync;
+  LOG(INFO) << "Wait: Proc fail to block SIGSYNC: " << sig;
 }
