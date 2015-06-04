@@ -153,11 +153,8 @@ void Caffe::SetDevice(const int *id_list, const int count) {
   for (int i = 0; i < count; i++) {
     const int id = id_list[i];
     if (id >= 0) {
-      cudaError_t error = cudaSetDevice(id);
-      if (error == cudaSuccess) {
-        new_list[last] = id;
-        last++;
-      }
+      new_list[last] = id;
+      last++;
     }
   }
   int device_count = last;
