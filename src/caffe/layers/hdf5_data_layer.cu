@@ -46,6 +46,7 @@ void HDF5DataLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
             * data_dim], &top[j]->mutable_gpu_data()[i * data_dim]);
     }
   }
+  skipIfNeeded(skip_step_);
 }
 
 INSTANTIATE_LAYER_GPU_FUNCS(HDF5DataLayer);

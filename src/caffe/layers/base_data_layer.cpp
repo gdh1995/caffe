@@ -7,11 +7,11 @@
 #include "caffe/util/mpi/interface.hpp"
 
 template <typename Dtype>
-void on_fork(void *layer) {
+static void on_fork(void *layer) {
   static_cast<caffe::BasePrefetchingDataLayer<Dtype> *>(layer)->init_skip();
 }
 template <typename Dtype>
-void on_not_fork(void *layer) {
+static void on_not_fork(void *layer) {
   DLOG(INFO) << "Initializing prefetch";
   static_cast<caffe::BasePrefetchingDataLayer<Dtype> *>(layer)->CreatePrefetchThread();
   DLOG(INFO) << "Prefetch initialized.";
@@ -95,8 +95,8 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
 
 template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::init_skip() {
-  int batch_size = this->layer_param_.data_param().batch_size();
-  int skip_size_0 = MPI::child_index() * batch_size;
+  const int batch_size = this->layer_param_.data_param().batch_size();
+  const int skip_size_0 = MPI::child_index() * batch_size;
   this->skip_step_ = (MPI::data_partition() - 1) * batch_size;
   LOG(INFO) << "Layer " << this->layer_param_.name() << " skip " << skip_size_0;
   this->skip(skip_size_0);

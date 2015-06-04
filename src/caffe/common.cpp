@@ -165,8 +165,7 @@ void Caffe::SetDevice(const int *id_list, const int count) {
     LOG(ERROR) << "Devices: all are invalid";
     MPI::SetDeviceList(NULL, 0);
   } else if (last == 1) {
-    const int new_id = new_list[0];
-    SetDevice(new_id);
+    SetDevice(new_list[0]);
     MPI::SetDeviceList(NULL, 1);
   } else {
     MPI::SetDeviceList(new_list, device_count);

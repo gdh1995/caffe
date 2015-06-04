@@ -2,9 +2,16 @@
 #define CAFFE_UTIL_MPI_WORKER_HPP_
 
 #include "caffe/util/mpi/interface.hpp"
+#include "caffe/syncedmem.cpp"
 
 namespace caffe {
 namespace mpi {
+
+extern const int SIGSYNC;
+
+void block_signal_for_sync();
+void forward_signal(int sig);
+
 
 template <typename Dtype>
 class Worker : public BaseWorker<Dtype> {
@@ -27,7 +34,7 @@ class Worker : public BaseWorker<Dtype> {
 
   typedef struct WorkerData {
     enum WorkerStatus {WORKING, SYNCING};
-    int status, pid;
+    int status, _mask;
     BufferUnit data[0];
     static const int BufferDataOffset = 8;
 
@@ -89,6 +96,7 @@ class ParentWorker : public Worker<Dtype> {
   const int children_size_, data_size_;
   const int * const children_;
   char *const memory_;
+  SyncedMemory vec_x_, first_params_, other_params_;
   
  private:
   DISABLE_COPY_AND_ASSIGN(ParentWorker);

@@ -7,12 +7,14 @@
 namespace caffe {
 namespace mpi {
 
-extern const int SIGSYNC;
-
 class Interface;
 
+class SafeClass {
+  virtual ~SafeClass() {}
+}
+
 template <typename Dtype>
-class BaseWorker {
+class BaseWorker : public SafeClass {
  public:
   inline BaseWorker() {}
   typedef const vector<shared_ptr<Blob<Dtype> > > &CDataRef; 
@@ -27,6 +29,7 @@ class BaseWorker {
 class Interface {
  public:
   Interface();
+  ~Interface();
 
   enum WorkerType { SELF_ONLY, PARENT, CHILD };
   typedef void (Handler)(void *data);
@@ -44,7 +47,6 @@ class Interface {
   }
 
   static void setup_handler(WorkerType type, Handler *func, void *data);
-  static void trigger();
 
   template <typename Dtype>
   static WorkerType fork(const SolverParameter& param,
@@ -55,6 +57,7 @@ class Interface {
     mpi.data_partition_ = data_copy;
     mpi.model_partition_ = model_copy;
     if (!mpi.check_for_fork()) {
+      mpi.worker_ = new SelfWorker<Dtype>();
       return mpi.worker_type_ = SELF_ONLY;
     };
     mpi.worker_ = mpi.do_fork(net_params);
@@ -88,9 +91,10 @@ class Interface {
   void setChildIndex(int index) { child_index_ = index; }
 
  private:
+
   bool check_for_fork();
   template <typename Dtype>
-  void *do_fork(const vector<shared_ptr<Blob<Dtype> > > &net_params) const;
+  SafeClass *do_fork(const vector<shared_ptr<Blob<Dtype> > > &net_params) const;
 
   void triggerHandlers();
 
@@ -104,7 +108,7 @@ class Interface {
 
   vector<HandlerWrapper> handlers_[3];
 
-  void *worker_;
+  SafeClass *worker_;
 
   static Interface mpi;
 
