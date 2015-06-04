@@ -160,6 +160,9 @@ template <typename Dtype>
 void ParentWorker<Dtype>::setInterface(Interface &interface) {
   interface.setWorkerType(Interface::PARENT);
   interface.setChildIndex(0);
+  if (Caffe::mode() == Caffe::CPU) {
+    interface.setHostMemory(memory_, children_size_ * data_size_);
+  }
 }
 
 INSTANTIATE_CLASS(ParentWorker);

@@ -86,6 +86,10 @@ class Interface {
 
   void setWorkerType(WorkerType t) { worker_type_ = t; }
   void setChildIndex(int index) { child_index_ = index; }
+  void setHostMemory(void *mem, int mem_size) {
+    shared_host_memory_ = mem;
+    shared_host_mem_size_ = mem_size;
+  }
 
  private:
 

@@ -67,8 +67,6 @@ SafeClass *Interface::do_fork(
     // one GPU has been selected in Caffe::SetDevice
     return new SelfWorker<Dtype>();
   }
-    shared_host_memory_ = shared_mem;
-    shared_host_memory_size_ = shared_mem_size;
 
   const pid_t parent_id = getpid();
   int *children = new int[fork_count];
