@@ -35,7 +35,7 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
       << " Bytes";
   LOG(INFO) << "    MPI: signal SYNC is " << SIGSYNC;
   if (Caffe::mode() == Caffe::GPU) {
-    const int device_id = MPI::GetDevice(0);
+    const int device_id = get_parent_device_id();
     Caffe::SetDevice(device_id);
     LOG(INFO) << "Parent uses the device #" << device_id;
     vec_x_.gpu_data();
@@ -84,10 +84,8 @@ void ParentWorker<Dtype>::work(CDataRef data) {
     break;
   case Caffe::GPU:
 #ifndef CPU_ONLY
-    first_params_.set_cpu_data(memory_);
-    other_params_.set_cpu_data(memory_ + data_size_);
-    vec_y = (Dtype *)first_params_.mutable_gpu_data();
-    mat_A = (const Dtype *)other_params_.gpu_data();
+    vec_y = (Dtype *)memory_;
+    mat_A = (const Dtype *)(memory_ + data_size_);
     caffe_gpu_gemv<Dtype>(CblasNoTrans, data_size_ / sizeof(Dtype),
         children_size_ - 1, (Dtype)1., mat_A, (const Dtype *)vec_x_.gpu_data(),
         (Dtype)1. / children_size_, vec_y);
@@ -127,7 +125,7 @@ void ParentWorker<Dtype>::signal(CDataRef data) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)
       CUDA_CHECK(cudaMemcpy(buffer, data[i]->gpu_data(), sizeof(Dtype) * count,
-          cudaMemcpyDeviceToHost));
+          cudaMemcpyDeviceToDevice));
       buffer = buffer->next(count);
     }
 #else

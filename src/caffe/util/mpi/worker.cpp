@@ -28,6 +28,24 @@ void forward_signal(int sig) {
   DLOG(INFO) << "MPI: this thread handled signal " << sig;
 }
 
+int get_parent_device_id() {
+  return MPI::GetDevice(0);
+}
+
+int set_peer_device(int peer_id) {
+  int current_device;
+  CUDA_CHECK(cudaGetDevice(&current_device));
+  if (current_device == peer_id) {
+    return 0;
+  }
+  cudaError_t err = cudaDeviceEnablePeerAccess(peer_id, 0);
+  if (err == cudaSuccess || err == cudaErrorPeerAccessAlreadyEnabled) {
+    return 0;
+  } else {
+    LOG(ERROR) << "can not access peer device " << peer_id << " @ err: " << err;
+    return -1;
+  }
+}
 
 template <typename Dtype>
 int Worker<Dtype>::GetParamsSize(CDataRef net_params) {

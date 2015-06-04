@@ -10,6 +10,8 @@ namespace mpi {
 extern const int SIGSYNC;
 
 void block_signal_for_sync();
+int get_parent_device_id();
+int set_peer_device(int peer_id);
 
 template <typename Dtype>
 class Worker : public BaseWorker<Dtype> {

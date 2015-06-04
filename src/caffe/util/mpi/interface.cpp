@@ -3,6 +3,7 @@
 #include <cstdlib>
 
 #include "caffe/util/mpi/interface.hpp"
+#include "caffe/util/math_functions.hpp"
 #include "caffe/util/mpi/worker.hpp"
 
 using std::vector;
@@ -60,12 +61,17 @@ SafeClass *Interface::do_fork(
   const int child_mem_size = Worker<Dtype>::GetParamsSize(*net_params);
   const int shared_mem_size = child_mem_size * fork_count;
   LOG(INFO) << "Shared memory: " << fork_count << " * " << child_mem_size;
-  char *const shared_mem = (char *)mmap(NULL, shared_mem_size,
-      PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-  if (shared_mem == MAP_FAILED) {
-    LOG(ERROR) << "Map shared memory: failed!";
-    // one GPU has been selected in Caffe::SetDevice
-    return new SelfWorker<Dtype>();
+  char *shared_mem;
+  if (Caffe::mode() == Caffe::GPU) {
+    CUDA_CHECK(cudaMalloc(&shared_mem, shared_mem_size));
+  } else {
+    shared_mem = (char *)mmap(NULL, shared_mem_size,
+        PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+    if (shared_mem == MAP_FAILED) {
+      LOG(ERROR) << "Map shared memory: failed!";
+      // one GPU has been selected in Caffe::SetDevice
+      return new SelfWorker<Dtype>();
+    }
   }
 
   const pid_t parent_id = getpid();

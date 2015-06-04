@@ -25,19 +25,38 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
   if (Caffe::mode() == Caffe::GPU) {
     const int device_id = MPI::GetDevice(child_index);
     Caffe::SetDevice(device_id);
+    set_peer_device(get_parent_device_id());
     LOG(INFO) << "Child #" << child_index << " uses the device #" << device_id;
   }
 }
 
 template <typename Dtype>
 void ChildWorker<Dtype>::sync(CDataRef data) {
-  WorkerData *worker = (WorkerData *)memory_;
-  BufferUnit *buffer = worker->data;
-  for (int i = 0; i < data.size(); i++) {
-    const int count = data[i]->count();
-    const Dtype *diff_ptr = data[i]->cpu_diff();
-    memcpy(buffer, diff_ptr, sizeof(Dtype) * count);
-    buffer = buffer->next(count);
+  BufferUnit *buffer = ((WorkerData *)memory_)->data;
+  switch (Caffe::mode()) {
+  case Caffe::CPU:
+    for (int i = 0; i < data.size(); i++) {
+      const int count = data[i]->count();
+      // NOLINT_NEXT_LINE(caffe/alt_fn)
+      memcpy(buffer, data[i]->cpu_diff(), sizeof(Dtype) * count);
+      buffer = buffer->next(count);
+    }
+    break;
+  case Caffe::GPU:
+#ifndef CPU_ONLY
+    for (int i = 0; i < data.size(); i++) {
+      const int count = data[i]->count();
+      // NOLINT_NEXT_LINE(caffe/alt_fn)
+      CUDA_CHECK(cudaMemcpy(buffer, data[i]->gpu_diff(), sizeof(Dtype) * count,
+          cudaMemcpyDeviceToDevice));
+      buffer = buffer->next(count);
+    }
+#else
+    NO_GPU;
+#endif
+    break;
+  default:
+    LOG(FATAL) << "Unknown caffe mode: " << Caffe::mode();
   }
 
   sigset_t wait_set;
@@ -58,14 +77,35 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
 
 template <typename Dtype>
 void ChildWorker<Dtype>::work(CDataRef data) {
-  volatile const WorkerData *const parent_worker =
-      (volatile const WorkerData *)parent_memory_;
-  volatile const BufferUnit *parent_buffer = parent_worker->data;
-  for (int i = 0; i < data.size(); i++) {
-    const int count = data[i]->count();
-    Dtype *data_ptr = data[i]->mutable_cpu_data();
-    memcpy(data_ptr, (Dtype *)parent_buffer->data, sizeof(Dtype) * count);
-    parent_buffer = parent_buffer->nextv(count);
+  volatile const BufferUnit *parent_cpu_buffer;
+  const BufferUnit *parent_gpu_buffer;
+  switch (Caffe::mode()) {
+  case Caffe::CPU:
+    parent_cpu_buffer = ((volatile const WorkerData *)parent_memory_)->data;
+    for (int i = 0; i < data.size(); i++) {
+      const int count = data[i]->count();
+      // NOLINT_NEXT_LINE(caffe/alt_fn)
+      memcpy(data[i]->mutable_cpu_data(), (Dtype *)parent_cpu_buffer->data,
+          sizeof(Dtype) * count);
+      parent_cpu_buffer = parent_cpu_buffer->nextv(count);
+    }
+    break;
+  case Caffe::GPU:
+#ifndef CPU_ONLY
+    parent_gpu_buffer = ((const WorkerData *)parent_memory_)->data;
+    for (int i = 0; i < data.size(); i++) {
+      const int count = data[i]->count();
+      // NOLINT_NEXT_LINE(caffe/alt_fn)
+      CUDA_CHECK(cudaMemcpy(data[i]->mutable_gpu_data(), parent_gpu_buffer,
+          sizeof(Dtype) * count, cudaMemcpyDeviceToDevice));
+      parent_gpu_buffer = parent_gpu_buffer->next(count);
+    }
+#else
+    NO_GPU;
+#endif
+    break;
+  default:
+    LOG(FATAL) << "Unknown caffe mode: " << Caffe::mode();
   }
 }
 
