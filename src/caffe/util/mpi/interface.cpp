@@ -15,12 +15,21 @@ namespace mpi {
 Interface::Interface()
   : worker_type_(SELF_ONLY), child_index_(0), data_partition_(1)
   , model_partition_(1), device_count_(0), device_list_(NULL)
+  , shared_host_memory_(NULL), shared_host_mem_size_(0)
 {
 }
 
 Interface::~Interface() {
   delete [] device_list_;
   delete worker_;
+  if (shared_host_mem_size_ > 0 && shared_host_memory_ != NULL) {
+    if (munmap(shared_host_memory_, shared_host_mem_size_) != 0) {
+      LOG(ERROR) << "Release shared memory: fail: " << errno << " @ s="
+          << shared_host_mem_size_;
+    } else {
+      LOG(INFO) << "Release shared memory: " << shared_host_mem_size_;
+    }
+  }
 }
 
 bool Interface::check_for_fork() {
@@ -42,9 +51,13 @@ bool Interface::check_for_fork() {
 
 template <typename Dtype>
 SafeClass *Interface::do_fork(
-    const vector<shared_ptr<Blob<Dtype> > > &net_params) const {
+    const vector<shared_ptr<Blob<Dtype> > > *net_params) const {
+  if (net_params == NULL) {
+    return new SelfWorker<Dtype>();
+  }
+
   const int fork_count = data_partition_;
-  const int child_mem_size = Worker<Dtype>::GetParamsSize(net_params);
+  const int child_mem_size = Worker<Dtype>::GetParamsSize(*net_params);
   const int shared_mem_size = child_mem_size * fork_count;
   LOG(INFO) << "Shared memory: " << fork_count << " * " << child_mem_size;
   char *const shared_mem = (char *)mmap(NULL, shared_mem_size,
@@ -54,6 +67,8 @@ SafeClass *Interface::do_fork(
     // one GPU has been selected in Caffe::SetDevice
     return new SelfWorker<Dtype>();
   }
+    shared_host_memory_ = shared_mem;
+    shared_host_memory_size_ = shared_mem_size;
 
   const pid_t parent_id = getpid();
   int *children = new int[fork_count];
@@ -101,7 +116,7 @@ void Interface::triggerHandlers() {
     return;
   }
   const vector<HandlerWrapper> &handler = handlers_[index];
-  for (int i = 0; i < handler.length; i++) {
+  for (int i = 0; i < handler.size(); i++) {
     const HandlerWrapper &wrapper = handler[i];
     wrapper.func(wrapper.data);
   }
@@ -112,10 +127,10 @@ void Interface::triggerHandlers() {
 
 
 Interface Interface::mpi;
-template void *Interface::do_fork
-(const vector<shared_ptr<Blob<float> > > &net_params) const;
-template void *Interface::do_fork
-(const vector<shared_ptr<Blob<double> > > &net_params) const;
+template SafeClass *Interface::do_fork
+(const vector<shared_ptr<Blob<float> > > *net_params) const;
+template SafeClass *Interface::do_fork
+(const vector<shared_ptr<Blob<double> > > *net_params) const;
 
 template class BaseWorker<float>;
 template class BaseWorker<double>;

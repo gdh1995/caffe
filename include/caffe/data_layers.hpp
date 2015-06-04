@@ -170,6 +170,9 @@ class HDF5DataLayer : public Layer<Dtype> {
   virtual inline int ExactNumBottomBlobs() const { return 0; }
   virtual inline int MinTopBlobs() const { return 1; }
 
+  virtual void skipIfNeeded(int count);
+  void init_skip();
+
  protected:
   virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top);
@@ -180,9 +183,6 @@ class HDF5DataLayer : public Layer<Dtype> {
   virtual void Backward_gpu(const vector<Blob<Dtype>*>& top,
       const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {}
   virtual void LoadHDF5FileData(const char* filename);
-
-  virtual void skipIfNeeded(int count);
-  void init_skip();
 
   std::vector<std::string> hdf_filenames_;
   unsigned int num_files_;

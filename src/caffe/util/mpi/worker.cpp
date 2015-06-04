@@ -3,13 +3,6 @@
 #include <signal.h>
 #include <pthread.h>
 
-static void set_for_clean(int type_size, void *instance);
-static void clean_at_exit();
-static void at_child_exit();
-
-static void do_sig_sync(int sig);
-static pthread_t main_thread_id;
-
 namespace caffe {
 namespace mpi {
 
@@ -49,21 +42,16 @@ int Worker<Dtype>::GetParamsSize(CDataRef net_params) {
 }
 
 template <typename Dtype>
-void Worker<Dtype>::sync(CDataRef data) {
-  NOT_IMPLEMENTED;
-}
-
-template <typename Dtype>
-void Worker<Dtype>::signal(CDataRef data) {
-  NOT_IMPLEMENTED;
+SelfWorker<Dtype>::SelfWorker() : Worker<Dtype>() {
+  int current_device;
+  CUDA_CHECK(cudaGetDevice(&current_device));
+  Caffe::SetDevice(current_device);
 }
 
 template int Worker<float>::GetParamsSize(CDataRef net_params);
 template int Worker<double>::GetParamsSize(CDataRef net_params);
-template int Worker<float>::sync(CDataRef data);
-template int Worker<double>::sync(CDataRef data);
-template int Worker<float>::signal(CDataRef data);
-template int Worker<double>::signal(CDataRef data);
+template SelfWorker<float>::SelfWorker();
+template SelfWorker<double>::SelfWorker();
 
 
 }  // namespace mpi

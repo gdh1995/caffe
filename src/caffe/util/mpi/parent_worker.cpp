@@ -1,7 +1,6 @@
 #include <vector>
 #include <errno.h>
 #include <signal.h>
-#include <pthread.h>
 
 #include "caffe/util/mpi/worker.hpp"
 #include "caffe/blob.hpp"
@@ -29,7 +28,7 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
   ::signal(SIGQUIT, exit);
 
   caffe_set(children_size_, ((Dtype)1.) / children_size_,
-      vec_x_.mutable_cpu_data());
+      (Dtype *)vec_x_.mutable_cpu_data());
 
   LOG(INFO) << "Parent holds on shared memory " << children_size * data_size
       << " Bytes";
@@ -54,7 +53,7 @@ void ParentWorker<Dtype>::sync(CDataRef data) {
     } else {
       continue;
     }
-    if (counter_sig_sync >= children_size_ && check_other_child()) {
+    if (counter_sig_sync >= children_size_) {
       break;
     }
   }
@@ -63,15 +62,18 @@ void ParentWorker<Dtype>::sync(CDataRef data) {
 
 template <typename Dtype>
 void ParentWorker<Dtype>::work(CDataRef data) {
+  Dtype *vec_y;
+  const Dtype *mat_A;
+  const BufferUnit *buffer;
   switch (Caffe::mode()) {
   case Caffe::CPU:
-    Dtype *vec_y = (Dtype *)first_params_.mutable_cpu_data();
-    const Dtype *mat_A = (const Dtype *)other_params_.cpu_data();
+    vec_y = (Dtype *)first_params_.mutable_cpu_data();
+    mat_A = (const Dtype *)other_params_.cpu_data();
     caffe_cpu_gemv<Dtype>(CblasNoTrans, children_size_ - 1,
         data_size_ / sizeof(Dtype), (Dtype)1., mat_A,
         (const Dtype *)vec_x_.cpu_data(), (Dtype)1. / children_size_, vec_y);
 
-    const BufferUnit *buffer = ((WorkerData *)vec_y)->data;
+    buffer = ((WorkerData *)vec_y)->data;
     for (int i = 0; i < data.size(); i++) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)
@@ -82,14 +84,14 @@ void ParentWorker<Dtype>::work(CDataRef data) {
   case Caffe::GPU:
 #ifndef CPU_ONLY
     first_params_.set_cpu_data(memory_);
-    other_params_.set_cpu_data(memory_ + data_size);
-    Dtype *vec_y = (Dtype *)first_params_.mutable_gpu_data();
-    const Dtype *mat_A = (const Dtype *)other_params_.gpu_data();
+    other_params_.set_cpu_data(memory_ + data_size_);
+    vec_y = (Dtype *)first_params_.mutable_gpu_data();
+    mat_A = (const Dtype *)other_params_.gpu_data();
     caffe_gpu_gemv<Dtype>(CblasNoTrans, children_size_ - 1,
         data_size_ / sizeof(Dtype), (Dtype)1., mat_A,
         (const Dtype *)vec_x_.gpu_data(), (Dtype)1. / children_size_, vec_y);
 
-    const BufferUnit *buffer = ((WorkerData *)vec_y)->data;
+    buffer = ((WorkerData *)vec_y)->data;
     for (int i = 0; i < data.size(); i++) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)
@@ -144,34 +146,14 @@ void ParentWorker<Dtype>::signal(CDataRef data) {
 }
 
 template <typename Dtype>
-bool ParentWorker<Dtype>::check_other_child() {
-  const WorkerData *worker = (const WorkerData *)memory_;
-  for (int i = 0; i < children_size_; i++) {
-    if (worker->status != WorkerData::SYNCING) {
-      return false;
-    }
-    worker = worker->next(data_size_);
-  }
-  return true;
-}
-
-template <typename Dtype>
 void ParentWorker<Dtype>::clean() {
-  if (memory_ == NULL || data_size_ == 0) {
-    return;
-  }
   union sigval rc_val;
   rc_val.sival_int = -2;
   for (int i = 0; i < children_size_; i++) {
     const pid_t pid = children_[i];
     sigqueue(pid, SIGTERM, rc_val);
   }
-  int msize = data_size_ * children_size_;
-  if (munmap(memory_, msize) != 0) {
-    LOG(ERROR) << "Release shared memory: fail: " << errno << " @ s=" << msize;
-  } else {
-    LOG(INFO) << "Release shared memory: " << msize;
-  }
+  LOG(INFO) << "Broadcast: exit";
 }
 
 template <typename Dtype>
@@ -181,7 +163,6 @@ void ParentWorker<Dtype>::setInterface(Interface &interface) {
 }
 
 INSTANTIATE_CLASS(ParentWorker);
-INSTANTIATE_CLASS(ChildWorker);
 
 }  // namespace mpi
 }  // namespace caffe

@@ -2,7 +2,7 @@
 #define CAFFE_UTIL_MPI_WORKER_HPP_
 
 #include "caffe/util/mpi/interface.hpp"
-#include "caffe/syncedmem.cpp"
+#include "caffe/syncedmem.hpp"
 
 namespace caffe {
 namespace mpi {
@@ -10,8 +10,6 @@ namespace mpi {
 extern const int SIGSYNC;
 
 void block_signal_for_sync();
-void forward_signal(int sig);
-
 
 template <typename Dtype>
 class Worker : public BaseWorker<Dtype> {
@@ -33,10 +31,8 @@ class Worker : public BaseWorker<Dtype> {
   } BufferUnit;
 
   typedef struct WorkerData {
-    enum WorkerStatus {WORKING, SYNCING};
-    int status, _mask;
     BufferUnit data[0];
-    static const int BufferDataOffset = 8;
+    static const int BufferDataOffset = 0;
 
     WorkerData *next(int byte_size) {
       return (WorkerData *)(((char *)this) + byte_size);
@@ -48,8 +44,8 @@ class Worker : public BaseWorker<Dtype> {
 
   static int GetParamsSize(CDataRef net_params);
 
-  virtual void sync  (CDataRef data);
-  virtual void signal(CDataRef data);
+  virtual void sync  (CDataRef data) { NOT_IMPLEMENTED; }
+  virtual void signal(CDataRef data) { NOT_IMPLEMENTED; }
 
  private:
   DISABLE_COPY_AND_ASSIGN(Worker);
@@ -62,7 +58,7 @@ class SelfWorker : public Worker<Dtype> {
   typedef typename Worker<Dtype>::WorkerData WorkerData;
   typedef typename Worker<Dtype>::BufferUnit BufferUnit;
 
-  inline SelfWorker(): Worker<Dtype>() {}
+  SelfWorker();
   virtual void sync  (CDataRef data) {}
   virtual void signal(CDataRef data) {}
   virtual void setInterface(Interface &interface) {

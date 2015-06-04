@@ -1,18 +1,11 @@
 #include <vector>
-#include <cstdlib>
 #include <errno.h>
 #include <signal.h>
-#include <pthread.h>
 
 #include "caffe/util/mpi/worker.hpp"
 #include "caffe/blob.hpp"
 
-static void set_for_clean(int type_size, void *instance);
-static void clean_at_exit();
 static void at_child_exit();
-
-static void do_sig_sync(int sig);
-static pthread_t main_thread_id;
 
 namespace caffe {
 namespace mpi {
@@ -24,7 +17,6 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
   , data_size_(data_size), memory_(memory), parent_memory_(parent_memory)
 {
   WorkerData *worker = (WorkerData *)memory_;
-  worker->status = WorkerData::WORKING;
 
   block_signal_for_sync();
   ::signal(SIGTERM, exit);
@@ -49,7 +41,6 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
     memcpy(buffer, diff_ptr, sizeof(Dtype) * count);
     buffer = buffer->next(count);
   }
-  worker->status = WorkerData::SYNCING;
 
   sigset_t wait_set;
   sigemptyset(&wait_set);
@@ -64,7 +55,6 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
       break;
     }
   }
-  worker->status = WorkerData::WORKING;
   work(data);
 }
 

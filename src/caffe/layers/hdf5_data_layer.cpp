@@ -199,7 +199,7 @@ void HDF5DataLayer<Dtype>::init_skip() {
   const int skip_size_0 = MPI::child_index() * batch_size;
   this->skip_step_ = (MPI::data_partition() - 1) * batch_size;
   LOG(INFO) << "Layer " << this->layer_param_.name() << " skip " << skip_size_0;
-  this->skip(skip_size_0);
+  this->skipIfNeeded(skip_size_0);
 }
 
 #ifdef CPU_ONLY

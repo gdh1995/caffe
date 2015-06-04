@@ -10,8 +10,9 @@ namespace mpi {
 class Interface;
 
 class SafeClass {
+ public:
   virtual ~SafeClass() {}
-}
+};
 
 template <typename Dtype>
 class BaseWorker : public SafeClass {
@@ -56,11 +57,7 @@ class Interface {
     CHECK_GE(model_copy, 1) << "Model parallel number is invalid.";
     mpi.data_partition_ = data_copy;
     mpi.model_partition_ = model_copy;
-    if (!mpi.check_for_fork()) {
-      mpi.worker_ = new SelfWorker<Dtype>();
-      return mpi.worker_type_ = SELF_ONLY;
-    };
-    mpi.worker_ = mpi.do_fork(net_params);
+    mpi.worker_ = mpi.do_fork(mpi.check_for_fork() ? &net_params : NULL);
     static_cast<BaseWorker<Dtype>*>(mpi.worker_)->setInterface(mpi);
     mpi.triggerHandlers();
     return mpi.worker_type_;
@@ -94,7 +91,7 @@ class Interface {
 
   bool check_for_fork();
   template <typename Dtype>
-  SafeClass *do_fork(const vector<shared_ptr<Blob<Dtype> > > &net_params) const;
+  SafeClass *do_fork(const vector<shared_ptr<Blob<Dtype> > > *net_params) const;
 
   void triggerHandlers();
 
@@ -109,6 +106,8 @@ class Interface {
   vector<HandlerWrapper> handlers_[3];
 
   SafeClass *worker_;
+  void *shared_host_memory_;
+  int shared_host_mem_size_;
 
   static Interface mpi;
 

@@ -199,8 +199,8 @@ void Solver<Dtype>::Step(int iters) {
         }
         LOG(INFO) << "Iteration " << iter_ << ", loss = " << smoothed_loss;
         iter_time += timer.MicroSeconds();
-        LOG(INFO) << " " << child_index << ": Time = " << (iter_time / 1000)
-            << " ms.";
+        LOG(INFO) << " " << MPI::child_index() << ": Time = "
+            << (iter_time / 1000) << " ms.";
         iter_time = 0;
         const vector<Blob<Dtype>*>& result = net_->output_blobs();
         int score_index = 0;
