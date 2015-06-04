@@ -8,6 +8,7 @@ namespace caffe {
 namespace mpi {
 
 extern const int SIGSYNC;
+const int SHARED_HOST_MEM_MIN_SIZE = 4096;
 
 void block_signal_for_sync();
 int get_parent_device_id();
@@ -107,7 +108,7 @@ class ChildWorker : public Worker<Dtype> {
   typedef typename Worker<Dtype>::WorkerData WorkerData;
   typedef typename Worker<Dtype>::BufferUnit BufferUnit;
 
-  ChildWorker(int child_index, int parent_pid, int data_size, char *memory,
+  ChildWorker(int child_index, int parent_pid, int data_size,
       const char *parent_memory);
 
   virtual void sync  (CDataRef data);
@@ -118,7 +119,7 @@ class ChildWorker : public Worker<Dtype> {
 
  protected:
   const int child_index_, parent_pid_, data_size_;
-  char *const memory_; 
+  char *const memory_; // used only when in CPU mode
   volatile const char *const parent_memory_;
 
  private:

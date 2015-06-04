@@ -59,19 +59,15 @@ SafeClass *Interface::do_fork(
 
   const int fork_count = data_partition_;
   const int child_mem_size = Worker<Dtype>::GetParamsSize(*net_params);
-  const int shared_mem_size = child_mem_size * fork_count;
+  const int shared_mem_size = Caffe::mode() != Caffe::GPU
+      ? (child_mem_size * fork_count) : SHARED_HOST_MEM_MIN_SIZE;
   LOG(INFO) << "Shared memory: " << fork_count << " * " << child_mem_size;
-  char *shared_mem;
-  if (Caffe::mode() == Caffe::GPU) {
-    CUDA_CHECK(cudaMalloc(&shared_mem, shared_mem_size));
-  } else {
-    shared_mem = (char *)mmap(NULL, shared_mem_size,
-        PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-    if (shared_mem == MAP_FAILED) {
-      LOG(ERROR) << "Map shared memory: failed!";
-      // one GPU has been selected in Caffe::SetDevice
-      return new SelfWorker<Dtype>();
-    }
+  char *const shared_mem = (char *)mmap(NULL, shared_mem_size,
+      PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+  if (shared_mem == MAP_FAILED) {
+    LOG(ERROR) << "Map shared memory: failed!";
+    // one GPU has been selected in Caffe::SetDevice
+    return new SelfWorker<Dtype>();
   }
 
   const pid_t parent_id = getpid();
@@ -82,9 +78,7 @@ SafeClass *Interface::do_fork(
       LOG(ERROR) << "Fork failed when creating child worker #" << i;
       continue; // TODO: now may go into a dead loop
     } else if (child == 0) {
-      char *self_mem = shared_mem + child_mem_size * i;
-      return new ChildWorker<Dtype>(i, parent_id, child_mem_size, self_mem,
-          shared_mem);
+      return new ChildWorker<Dtype>(i, parent_id, child_mem_size, shared_mem);
     }
     children[i] = child;
     i++;

@@ -12,9 +12,10 @@ namespace mpi {
 
 template <typename Dtype>
 ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
-    int data_size, char *memory, const char *parent_memory)
+    int data_size, const char *parent_memory)
   : Worker<Dtype>(), child_index_(child_index), parent_pid_(parent_pid)
-  , data_size_(data_size), memory_(memory), parent_memory_(parent_memory)
+  , data_size_(data_size), parent_memory_(parent_memory)
+  , memory_(parent_memory + data_size * child_index)
 {
   block_signal_for_sync();
   ::signal(SIGTERM, exit);
@@ -32,9 +33,10 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
 
 template <typename Dtype>
 void ChildWorker<Dtype>::sync(CDataRef data) {
-  BufferUnit *buffer = ((WorkerData *)memory_)->data;
+  BufferUnit *buffer;
   switch (Caffe::mode()) {
   case Caffe::CPU:
+    buffer = ((WorkerData *)memory_)->data;
     for (int i = 0; i < data.size(); i++) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)
@@ -44,6 +46,8 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
     break;
   case Caffe::GPU:
 #ifndef CPU_ONLY
+    buffer = ((WorkerData *)((Dtype **)parent_memory_)[0])
+        ->next(data_size * child_index)->data;
     for (int i = 0; i < data.size(); i++) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)
@@ -92,7 +96,7 @@ void ChildWorker<Dtype>::work(CDataRef data) {
     break;
   case Caffe::GPU:
 #ifndef CPU_ONLY
-    parent_gpu_buffer = ((const WorkerData *)parent_memory_)->data;
+    parent_gpu_buffer = ((WorkerData *)((Dtype **)parent_memory_)[0])->data;
     for (int i = 0; i < data.size(); i++) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)

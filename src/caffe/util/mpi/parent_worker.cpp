@@ -16,7 +16,7 @@ template <typename Dtype>
 ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
     int data_size, char *memory)
   : Worker<Dtype>(), children_size_(children_size), data_size_(data_size)
-  , children_(children), memory_(memory),
+  , children_(children), memory_(memory)
   , vec_x_((children_size - 1) * sizeof(Dtype))
   , first_params_(data_size), other_params_((children_size - 1) * data_size)
 { 
@@ -38,6 +38,9 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
     const int device_id = get_parent_device_id();
     Caffe::SetDevice(device_id);
     LOG(INFO) << "Parent uses the device #" << device_id;
+    void *gpu_memory = NULL;
+    CUDA_CHECK(cudaMalloc(&gpu_memory, children_size_ * data_size_));
+    ((Dtype **)memory_)[0] = gpu_memory;
     vec_x_.gpu_data();
   }
 }
@@ -159,9 +162,8 @@ template <typename Dtype>
 void ParentWorker<Dtype>::setInterface(Interface &interface) {
   interface.setWorkerType(Interface::PARENT);
   interface.setChildIndex(0);
-  if (Caffe::mode() == Caffe::CPU) {
-    interface.setHostMemory(memory_, children_size_ * data_size_);
-  }
+  interface.setHostMemory(memory_, Caffe::mode() != Caffe::GPU
+      ? (children_size_ * data_size_) : SHARED_HOST_MEM_MIN_SIZE);
 }
 
 INSTANTIATE_CLASS(ParentWorker);
