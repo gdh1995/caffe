@@ -16,14 +16,12 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
   : Worker<Dtype>(), child_index_(child_index), parent_pid_(parent_pid)
   , data_size_(data_size), memory_(memory), parent_memory_(parent_memory)
 {
-  WorkerData *worker = (WorkerData *)memory_;
-
   block_signal_for_sync();
   ::signal(SIGTERM, exit);
   ::atexit(at_child_exit);
   
   LOG(INFO) << "Fork a child #" << child_index << ", map: " << (int*)memory
-      << "\n    MPI: signal SYNC is " << SIGSYNC;
+  LOG(INFO) << "    MPI: signal SYNC is " << SIGSYNC;
   if (Caffe::mode() == Caffe::GPU) {
     const int device_id = MPI::GetDevice(child_index);
     Caffe::SetDevice(device_id);

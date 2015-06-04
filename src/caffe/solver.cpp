@@ -491,7 +491,7 @@ void SGDSolver<Dtype>::ComputeUpdateValue() {
   Dtype rate = GetLearningRate();
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
     LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
-    LOG(INFO) << "        Sync = " << (sync_time_ / 1000) << " ms.\n";
+    LOG(INFO) << "        Sync = " << (sync_time_ / 1000) << " ms.\n\n";
     sync_time_ = 0;
   }
   ClipGradients();
@@ -608,7 +608,7 @@ void NesterovSolver<Dtype>::ComputeUpdateValue() {
   Dtype rate = this->GetLearningRate();
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
     LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
-    LOG(INFO) << "        Sync = " << (sync_time_ / 1000) << " ms.\n";
+    LOG(INFO) << "        Sync = " << (sync_time_ / 1000) << " ms.\n\n";
   }
   SGDSolver<Dtype>::ClipGradients();
   Dtype momentum = this->param_.momentum();
@@ -727,7 +727,7 @@ void AdaGradSolver<Dtype>::ComputeUpdateValue() {
   Dtype delta = this->param_.delta();
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
     LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
-    LOG(INFO) << "        Sync = " << (sync_time_ / 1000) << " ms.\n";
+    LOG(INFO) << "        Sync = " << (sync_time_ / 1000) << " ms.\n\n";
   }
   SGDSolver<Dtype>::ClipGradients();
   Dtype weight_decay = this->param_.weight_decay();
