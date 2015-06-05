@@ -180,9 +180,9 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
   
   LOG(INFO) << "Fork a child #" << child_index << ", map: " << (int*)memory;
   if (Caffe::mode() == Caffe::GPU) {
-    int device_id = MPI::GetDevice(child_index);
-    Caffe::SetDevice(device_id);
+    const int device_id = MPI::GetDevice(child_index);
     LOG(INFO) << "Child #" << child_index << " use the device #" << device_id;
+    Caffe::SetDevice(device_id);
   }
   ::signal(SIGTERM, exit);
   ::atexit(at_child_exit);
