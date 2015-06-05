@@ -1,5 +1,8 @@
 ## General
 *.log
+/include/caffe/proto/caffe.proto
+/include/caffe/proto/caffe.pb.h
+/src/caffe/proto/caffe.pb.cc
 
 # Compiled Object files
 *.slo
