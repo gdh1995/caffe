@@ -12,7 +12,7 @@ namespace mpi {
 
 template <typename Dtype>
 ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
-    int data_size, const char *parent_memory)
+    int data_size, char *parent_memory)
   : Worker<Dtype>(), child_index_(child_index), parent_pid_(parent_pid)
   , data_size_(data_size), parent_memory_(parent_memory)
   , memory_(parent_memory + data_size * child_index)
@@ -21,7 +21,8 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
   ::signal(SIGTERM, exit);
   ::atexit(at_child_exit);
   
-  LOG(INFO) << "Fork a child #" << child_index << ", map: " << (int*)memory;
+  LOG(INFO) << "Fork a child #" << child_index << ", map: " << (int*)memory_
+      << ", parent: " << (int*)parent_memory_;
   LOG(INFO) << "    MPI: signal SYNC is " << SIGSYNC;
   if (Caffe::mode() == Caffe::GPU) {
     const int device_id = MPI::GetDevice(child_index);
@@ -47,7 +48,7 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
   case Caffe::GPU:
 #ifndef CPU_ONLY
     buffer = ((WorkerData *)((Dtype **)parent_memory_)[0])
-        ->next(data_size * child_index)->data;
+        ->next(data_size_ * child_index_)->data;
     for (int i = 0; i < data.size(); i++) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)

@@ -109,7 +109,7 @@ class ChildWorker : public Worker<Dtype> {
   typedef typename Worker<Dtype>::BufferUnit BufferUnit;
 
   ChildWorker(int child_index, int parent_pid, int data_size,
-      const char *parent_memory);
+      char *parent_memory);
 
   virtual void sync  (CDataRef data);
   virtual void signal(CDataRef data) {}
@@ -119,8 +119,8 @@ class ChildWorker : public Worker<Dtype> {
 
  protected:
   const int child_index_, parent_pid_, data_size_;
-  char *const memory_; // used only when in CPU mode
   volatile const char *const parent_memory_;
+  char *const memory_; // used only when in CPU mode
 
  private:
   DISABLE_COPY_AND_ASSIGN(ChildWorker);

@@ -38,7 +38,7 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
     const int device_id = get_parent_device_id();
     Caffe::SetDevice(device_id);
     LOG(INFO) << "Parent uses the device #" << device_id;
-    void *gpu_memory = NULL;
+    Dtype *gpu_memory = NULL;
     CUDA_CHECK(cudaMalloc(&gpu_memory, children_size_ * data_size_));
     ((Dtype **)memory_)[0] = gpu_memory;
     vec_x_.gpu_data();
