@@ -16,7 +16,7 @@ template <typename Dtype>
 ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
     int data_size, char *memory)
   : Worker<Dtype>(), children_size_(children_size), data_size_(data_size)
-  , children_(children), memory_(memory),
+  , children_(children), memory_(memory)
   , vec_x_((children_size - 1) * sizeof(Dtype))
   , first_params_(data_size), other_params_((children_size - 1) * data_size)
 { 
