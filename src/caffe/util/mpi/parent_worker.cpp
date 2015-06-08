@@ -41,6 +41,8 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
     Dtype *gpu_memory = NULL;
     CUDA_CHECK(cudaMalloc(&gpu_memory, children_size_ * data_size_));
     ((Dtype **)memory_)[0] = gpu_memory;
+    LOG(INFO) << "Parent shared GPU memory: " << gpu_memory
+        << " , saved to "<< (void *)memory_;
     vec_x_.gpu_data();
   }
 }
@@ -87,8 +89,9 @@ void ParentWorker<Dtype>::work(CDataRef data) {
     break;
   case Caffe::GPU:
 #ifndef CPU_ONLY
-    vec_y = (Dtype *)memory_;
-    mat_A = (const Dtype *)(memory_ + data_size_);
+    vec_y = ((Dtype **)memory_)[0];
+    DLOG(INFO) << "Parent shared GPU memory: " << vec_y;
+    mat_A = (const Dtype *)((char *)vec_y + data_size_);
     caffe_gpu_gemv<Dtype>(CblasNoTrans, data_size_ / sizeof(Dtype),
         children_size_ - 1, (Dtype)1., mat_A, (const Dtype *)vec_x_.gpu_data(),
         (Dtype)1. / children_size_, vec_y);
@@ -112,7 +115,7 @@ void ParentWorker<Dtype>::work(CDataRef data) {
 
 template <typename Dtype>
 void ParentWorker<Dtype>::signal(CDataRef data) {
-  BufferUnit *buffer = ((WorkerData *)memory_)->data;
+  BufferUnit *buffer = ((WorkerData **)memory_)[0]->data;
   switch (Caffe::mode()) {
   case Caffe::CPU:
     for (int i = 0; i < data.size(); i++) {

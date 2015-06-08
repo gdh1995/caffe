@@ -1,5 +1,6 @@
 #include <vector>
 #include <errno.h>
+#include <cstdlib>
 #include <signal.h>
 
 #include "caffe/util/mpi/worker.hpp"
@@ -24,6 +25,7 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
   LOG(INFO) << "Fork a child #" << child_index << ", map: " << (int*)memory_
       << ", parent: " << (int*)parent_memory;
   LOG(INFO) << "    MPI: signal SYNC is " << SIGSYNC;
+  sleep(1);
   if (Caffe::mode() == Caffe::GPU) {
     const int device_id = MPI::GetDevice(child_index);
     Caffe::SetDevice(device_id);
@@ -48,7 +50,7 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
 #ifndef CPU_ONLY
     buffer = ((WorkerData *)((Dtype **)parent_memory_)[0])
         ->next(data_size_ * child_index_)->data;
-    LOG(INFO) << "Sync to parent's GPU: " << parent_gpu_buffer;
+    DLOG(INFO) << "Sync to parent's GPU: " << buffer;
     for (int i = 0, parent = get_parent_device_id(),
         self = MPI::GetDevice(child_index_); i < data.size(); i++) {
       const int count = data[i]->count();
