@@ -27,7 +27,6 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
   if (Caffe::mode() == Caffe::GPU) {
     const int device_id = MPI::GetDevice(child_index);
     Caffe::SetDevice(device_id);
-    set_peer_device(get_parent_device_id());
     LOG(INFO) << "Child #" << child_index << " uses the device #" << device_id;
   }
 }
@@ -49,11 +48,13 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
 #ifndef CPU_ONLY
     buffer = ((WorkerData *)((Dtype **)parent_memory_)[0])
         ->next(data_size_ * child_index_)->data;
-    for (int i = 0; i < data.size(); i++) {
+    LOG(INFO) << "Sync to parent's GPU: " << parent_gpu_buffer;
+    for (int i = 0, parent = get_parent_device_id(),
+        self = MPI::GetDevice(child_index_); i < data.size(); i++) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)
-      CUDA_CHECK(cudaMemcpy(buffer, data[i]->gpu_diff(), sizeof(Dtype) * count,
-          cudaMemcpyDeviceToDevice));
+      CUDA_CHECK(cudaMemcpyPeer(buffer, parent, data[i]->gpu_diff(), self,
+          sizeof(Dtype) * count));
       buffer = buffer->next(count);
     }
 #else
@@ -98,11 +99,12 @@ void ChildWorker<Dtype>::work(CDataRef data) {
   case Caffe::GPU:
 #ifndef CPU_ONLY
     parent_gpu_buffer = ((WorkerData *)((Dtype **)parent_memory_)[0])->data;
-    for (int i = 0; i < data.size(); i++) {
+    for (int i = 0, parent = get_parent_device_id(),
+        self = MPI::GetDevice(child_index_); i < data.size(); i++) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)
-      CUDA_CHECK(cudaMemcpy(data[i]->mutable_gpu_data(), parent_gpu_buffer,
-          sizeof(Dtype) * count, cudaMemcpyDeviceToDevice));
+      CUDA_CHECK(cudaMemcpyPeer(data[i]->mutable_gpu_data(), self,
+          parent_gpu_buffer, parent, sizeof(Dtype) * count));
       parent_gpu_buffer = parent_gpu_buffer->next(count);
     }
 #else
