@@ -104,6 +104,7 @@ void ChildWorker<Dtype>::work(CDataRef data) {
     for (int i = 0, parent = get_parent_device_id(),
         self = MPI::GetDevice(child_index_); i < data.size(); i++) {
       const int count = data[i]->count();
+      // TODO: it reports "cudaErrorInvalidValue"
       // NOLINT_NEXT_LINE(caffe/alt_fn)
       CUDA_CHECK(cudaMemcpyPeer(data[i]->mutable_gpu_data(), self,
           parent_gpu_buffer, parent, sizeof(Dtype) * count));
