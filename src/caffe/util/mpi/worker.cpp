@@ -38,11 +38,15 @@ int set_peer_device(int peer_id) {
   if (current_device == peer_id) {
     return 0;
   }
+  int canAccessPeer = -1;
+  CUDA_CHECK(cudaDeviceCanAccessPeer(&canAccessPeer, current_device, peer_id));
+  LOG(INFO) << "check direct peer access: " << canAccessPeer << " (1 := capable)";
   cudaError_t err = cudaDeviceEnablePeerAccess(peer_id, 0);
   if (err == cudaSuccess || err == cudaErrorPeerAccessAlreadyEnabled) {
     return 0;
   } else {
     LOG(ERROR) << "can not access peer device " << peer_id << " @ err: " << err;
+    CUDA_CHECK(err);
     return -1;
   }
 }

@@ -22,7 +22,7 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
   ::atexit(at_child_exit);
   
   LOG(INFO) << "Fork a child #" << child_index << ", map: " << (int*)memory_
-      << ", parent: " << (int*)parent_memory_;
+      << ", parent: " << (int*)parent_memory;
   LOG(INFO) << "    MPI: signal SYNC is " << SIGSYNC;
   if (Caffe::mode() == Caffe::GPU) {
     const int device_id = MPI::GetDevice(child_index);
