@@ -4,6 +4,7 @@
 
 #include "caffe/util/mpi/worker.hpp"
 #include "caffe/blob.hpp"
+#include "caffe/util/math_functions.hpp"
 
 static void at_child_exit();
 
@@ -33,11 +34,31 @@ template <typename Dtype>
 void ChildWorker<Dtype>::sync(CDataRef data) {
   WorkerData *worker = (WorkerData *)memory_;
   BufferUnit *buffer = worker->data;
-  for (int i = 0; i < data.size(); i++) {
-    const int count = data[i]->count();
-    const Dtype *diff_ptr = data[i]->cpu_diff();
-    memcpy(buffer, diff_ptr, sizeof(Dtype) * count);
-    buffer = buffer->next(count);
+  switch (Caffe::mode()) {
+  case Caffe::CPU:
+    for (int i = 0; i < data.size(); i++) {
+      const int count = data[i]->count();
+      // NOLINT_NEXT_LINE(caffe/alt_fn)
+      memcpy(buffer, data[i]->cpu_diff(), sizeof(Dtype) * count);
+      buffer = buffer->next(count);
+    }
+    break;
+  case Caffe::GPU:
+#ifndef CPU_ONLY
+    for (int i = 0; i < data.size(); i++) {
+      const int count = data[i]->count();
+      const Dtype *diff_ptr = data[i]->cpu_diff();
+      // NOLINT_NEXT_LINE(caffe/alt_fn)
+      CUDA_CHECK(cudaMemcpy(buffer, data[i]->gpu_diff(),
+          sizeof(Dtype) * count, cudaMemcpyDeviceToHost));
+      buffer = buffer->next(count);
+    }
+#else
+    NO_GPU;
+#endif
+    break;
+  default:
+    LOG(FATAL) << "Unknown caffe mode: " << Caffe::mode();
   }
 
   sigset_t wait_set;
@@ -61,11 +82,31 @@ void ChildWorker<Dtype>::work(CDataRef data) {
   volatile const WorkerData *const parent_worker =
       (volatile const WorkerData *)parent_memory_;
   volatile const BufferUnit *parent_buffer = parent_worker->data;
-  for (int i = 0; i < data.size(); i++) {
-    const int count = data[i]->count();
-    Dtype *data_ptr = data[i]->mutable_cpu_data();
-    memcpy(data_ptr, (Dtype *)parent_buffer->data, sizeof(Dtype) * count);
-    parent_buffer = parent_buffer->nextv(count);
+  switch (Caffe::mode()) {
+  case Caffe::CPU:
+    for (int i = 0; i < data.size(); i++) {
+      const int count = data[i]->count();
+      Dtype *const data_ptr = data[i]->mutable_cpu_data();
+      // NOLINT_NEXT_LINE(caffe/alt_fn)
+      memcpy(data_ptr, (Dtype *)parent_buffer->data, sizeof(Dtype) * count);
+      parent_buffer = parent_buffer->nextv(count);
+    }
+    break;
+  case Caffe::GPU:
+#ifndef CPU_ONLY
+    for (int i = 0; i < data.size(); i++) {
+      const int count = data[i]->count();
+      // NOLINT_NEXT_LINE(caffe/alt_fn)
+      CUDA_CHECK(cudaMemcpy(data[i]->mutable_gpu_data(), parent_buffer,
+          sizeof(Dtype) * count, cudaMemcpyHostToDevice));
+      parent_buffer = parent_buffer->nextv(count);
+    }
+#else
+    NO_GPU;
+#endif
+    break;
+  default:
+    LOG(FATAL) << "Unknown caffe mode: " << Caffe::mode();
   }
 }
 
