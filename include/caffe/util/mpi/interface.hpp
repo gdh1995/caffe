@@ -7,12 +7,15 @@
 namespace caffe {
 namespace mpi {
 
-extern const int SIGSYNC;
-
 class Interface;
 
+class SafeClass {
+ public:
+  virtual ~SafeClass() {}
+};
+
 template <typename Dtype>
-class BaseWorker {
+class BaseWorker : public SafeClass {
  public:
   inline BaseWorker() {}
   typedef const vector<shared_ptr<Blob<Dtype> > > &CDataRef; 
@@ -27,6 +30,7 @@ class BaseWorker {
 class Interface {
  public:
   Interface();
+  ~Interface();
 
   enum WorkerType { SELF_ONLY, PARENT, CHILD };
   typedef void (Handler)(void *data);
@@ -44,7 +48,6 @@ class Interface {
   }
 
   static void setup_handler(WorkerType type, Handler *func, void *data);
-  static void trigger();
 
   template <typename Dtype>
   static WorkerType fork(const SolverParameter& param,
@@ -54,10 +57,7 @@ class Interface {
     CHECK_GE(model_copy, 1) << "Model parallel number is invalid.";
     mpi.data_partition_ = data_copy;
     mpi.model_partition_ = model_copy;
-    if (!mpi.check_for_fork()) {
-      return mpi.worker_type_ = SELF_ONLY;
-    };
-    mpi.worker_ = mpi.do_fork(net_params);
+    mpi.worker_ = mpi.do_fork(mpi.check_for_fork() ? &net_params : NULL);
     static_cast<BaseWorker<Dtype>*>(mpi.worker_)->setInterface(mpi);
     mpi.triggerHandlers();
     return mpi.worker_type_;
@@ -86,11 +86,16 @@ class Interface {
 
   void setWorkerType(WorkerType t) { worker_type_ = t; }
   void setChildIndex(int index) { child_index_ = index; }
+  void setHostMemory(void *mem, int mem_size) {
+    shared_host_memory_ = mem;
+    shared_host_mem_size_ = mem_size;
+  }
 
  private:
+
   bool check_for_fork();
   template <typename Dtype>
-  void *do_fork(const vector<shared_ptr<Blob<Dtype> > > &net_params) const;
+  SafeClass *do_fork(const vector<shared_ptr<Blob<Dtype> > > *net_params) const;
 
   void triggerHandlers();
 
@@ -104,7 +109,9 @@ class Interface {
 
   vector<HandlerWrapper> handlers_[3];
 
-  void *worker_;
+  SafeClass *worker_;
+  void *shared_host_memory_;
+  int shared_host_mem_size_;
 
   static Interface mpi;
 

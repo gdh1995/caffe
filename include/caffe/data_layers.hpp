@@ -170,6 +170,9 @@ class HDF5DataLayer : public Layer<Dtype> {
   virtual inline int ExactNumBottomBlobs() const { return 0; }
   virtual inline int MinTopBlobs() const { return 1; }
 
+  virtual void skipIfNeeded(int count);
+  void init_skip();
+
  protected:
   virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top);
@@ -184,6 +187,7 @@ class HDF5DataLayer : public Layer<Dtype> {
   std::vector<std::string> hdf_filenames_;
   unsigned int num_files_;
   unsigned int current_file_;
+  int skip_step_;
   hsize_t current_row_;
   std::vector<shared_ptr<Blob<Dtype> > > hdf_blobs_;
   std::vector<unsigned int> data_permutation_;

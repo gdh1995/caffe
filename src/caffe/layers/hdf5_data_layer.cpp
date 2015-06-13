@@ -17,6 +17,12 @@ TODO:
 #include "caffe/data_layers.hpp"
 #include "caffe/layer.hpp"
 #include "caffe/util/io.hpp"
+#include "caffe/util/mpi/interface.hpp"
+
+template <typename Dtype>
+static void on_fork(void *layer) {
+  static_cast<caffe::HDF5DataLayer<Dtype> *>(layer)->init_skip();
+}
 
 namespace caffe {
 
@@ -123,6 +129,9 @@ void HDF5DataLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     }
     top[i]->Reshape(top_shape);
   }
+
+  this->skip_step_ = 0;
+  MPI::setup_handler(MPI::CHILD, on_fork<Dtype>, this);
 }
 
 template <typename Dtype>
@@ -155,6 +164,42 @@ void HDF5DataLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
             * data_dim], &top[j]->mutable_cpu_data()[i * data_dim]);
     }
   }
+  skipIfNeeded(skip_step_);
+}
+
+template <typename Dtype>
+void HDF5DataLayer<Dtype>::skipIfNeeded(int count) {
+  if (MPI::worker_type() != MPI::CHILD ||
+      this->layer_param_.hdf5_data_param().shuffle()) {
+    return;
+  }
+  current_row_ += count;
+  for (; ; ) {
+    const int left_skip = current_row_ - hdf_blobs_[0]->shape(0);
+    if (left_skip < 0) {
+      break;
+    }
+    if (num_files_ > 1) {
+      ++current_file_;
+      if (current_file_ == num_files_) {
+        current_file_ = 0;
+        DLOG(INFO) << "Looping around to first file.";
+      }
+      LoadHDF5FileData(
+          hdf_filenames_[file_permutation_[current_file_]].c_str());
+    }
+    current_row_ = left_skip;
+  }
+  current_row_ = 0;
+}
+
+template <typename Dtype>
+void HDF5DataLayer<Dtype>::init_skip() {
+  const int batch_size = this->layer_param_.hdf5_data_param().batch_size();
+  const int skip_size_0 = MPI::child_index() * batch_size;
+  this->skip_step_ = (MPI::data_partition() - 1) * batch_size;
+  LOG(INFO) << "Layer " << this->layer_param_.name() << " skip " << skip_size_0;
+  this->skipIfNeeded(skip_size_0);
 }
 
 #ifdef CPU_ONLY
