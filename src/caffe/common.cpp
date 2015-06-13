@@ -56,7 +56,7 @@ void Caffe::SetDevice(const int device_id) {
   NO_GPU;
 }
 
-void Caffe::SetDevice(const int *id_list, const int count) {
+void Caffe::SetDeviceList(const int *id_list, const int count) {
   NO_GPU;
 }
 
@@ -143,7 +143,7 @@ void Caffe::SetDevice(const int device_id) {
       << Get().cublas_handle_ << " | " << Get().curand_generator_;
 }
 
-void Caffe::SetDevice(const int *id_list, const int count) {
+void Caffe::SetDeviceList(const int *id_list, const int count) {
   int last = 0;
   if (count < 1) {
     MPI::SetDeviceList(NULL, 0);

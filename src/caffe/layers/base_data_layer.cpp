@@ -55,6 +55,7 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
   this->skip_step_ = 0;
   MPI::setup_handler(MPI::CHILD, on_fork<Dtype>, this);
   MPI::setup_handler(MPI::SELF_ONLY, on_not_fork<Dtype>, this);
+  MPI::setup_handler(MPI::PARENT, on_not_fork<Dtype>, this);
 }
 
 template <typename Dtype>

@@ -21,7 +21,6 @@ Interface::Interface()
 
 Interface::~Interface() {
   delete [] device_list_;
-  delete worker_;
   if (shared_host_mem_size_ > 0 && shared_host_memory_ != NULL) {
     if (munmap(shared_host_memory_, shared_host_mem_size_) != 0) {
       LOG(ERROR) << "Release shared memory: fail: " << errno << " @ s="

@@ -121,7 +121,7 @@ int train() {
         list[i] = solver_param.device_id(i);
         info << ", " << list[i];
       }
-      Caffe::SetDevice(list, count);
+      Caffe::SetDeviceList(list, count);
       delete [] list;
     } else if (old_flags_gpu >= 0 || solver_param.device_id_size() == 1) {
       info << " only";
