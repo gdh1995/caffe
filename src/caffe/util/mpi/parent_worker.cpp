@@ -66,6 +66,8 @@ void ParentWorker<Dtype>::work(CDataRef data) {
   Dtype *vec_y;
   const Dtype *mat_A;
   const BufferUnit *buffer;
+  first_params_.set_cpu_data(memory_);
+  other_params_.set_cpu_data(memory_ + data_size_);
   switch (Caffe::mode()) {
   case Caffe::CPU:
     vec_y = (Dtype *)first_params_.mutable_cpu_data();
@@ -84,8 +86,6 @@ void ParentWorker<Dtype>::work(CDataRef data) {
     break;
   case Caffe::GPU:
 #ifndef CPU_ONLY
-    first_params_.set_cpu_data(memory_);
-    other_params_.set_cpu_data(memory_ + data_size_);
     vec_y = (Dtype *)first_params_.mutable_gpu_data();
     mat_A = (const Dtype *)other_params_.gpu_data();
     caffe_gpu_gemv<Dtype>(CblasNoTrans, data_size_ / sizeof(Dtype),
