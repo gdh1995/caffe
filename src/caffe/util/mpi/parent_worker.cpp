@@ -28,7 +28,7 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
   ::signal(SIGTERM, exit);
   ::signal(SIGQUIT, exit);
 
-  caffe_set(children_size - 1, ((Dtype)1.) / children_size_,
+  caffe_set(children_size - 1, (Dtype)1.,
       (Dtype *)vec_x_.mutable_cpu_data());
 
   LOG(INFO) << "Parent holds on shared memory " << children_size * data_size
@@ -66,15 +66,17 @@ void ParentWorker<Dtype>::work(CDataRef data) {
   Dtype *vec_y;
   const Dtype *mat_A;
   const BufferUnit *buffer;
+  const Dtype scale = (Dtype)1. / children_size_;
   first_params_.set_cpu_data(memory_);
   other_params_.set_cpu_data(memory_ + data_size_);
   switch (Caffe::mode()) {
   case Caffe::CPU:
     vec_y = (Dtype *)first_params_.mutable_cpu_data();
     mat_A = (const Dtype *)other_params_.cpu_data();
-    caffe_cpu_gemv<Dtype>(CblasNoTrans, data_size_ / sizeof(Dtype),
-        children_size_ - 1, (Dtype)1., mat_A, (const Dtype *)vec_x_.cpu_data(),
-        (Dtype)1. / children_size_, vec_y);
+    caffe_cpu_gemv<Dtype>(CblasTrans,
+        children_size_ - 1, data_size_ / sizeof(Dtype),
+        scale, mat_A, (const Dtype *)vec_x_.cpu_data(),
+        scale, vec_y);
 
     buffer = ((WorkerData *)vec_y)->data;
     for (int i = 0; i < data.size(); i++) {
@@ -88,9 +90,10 @@ void ParentWorker<Dtype>::work(CDataRef data) {
 #ifndef CPU_ONLY
     vec_y = (Dtype *)first_params_.mutable_gpu_data();
     mat_A = (const Dtype *)other_params_.gpu_data();
-    caffe_gpu_gemv<Dtype>(CblasNoTrans, data_size_ / sizeof(Dtype),
-        children_size_ - 1, (Dtype)1., mat_A, (const Dtype *)vec_x_.gpu_data(),
-        (Dtype)1. / children_size_, vec_y);
+    caffe_gpu_gemv<Dtype>(CblasTrans,
+        children_size_ - 1, data_size_ / sizeof(Dtype),
+        scale, mat_A, (const Dtype *)vec_x_.gpu_data(),
+        scale, vec_y);
 
     buffer = ((WorkerData *)vec_y)->data;
     for (int i = 0; i < data.size(); i++) {

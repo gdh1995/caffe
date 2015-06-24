@@ -47,7 +47,6 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
 #ifndef CPU_ONLY
     for (int i = 0; i < data.size(); i++) {
       const int count = data[i]->count();
-      const Dtype *diff_ptr = data[i]->cpu_diff();
       // NOLINT_NEXT_LINE(caffe/alt_fn)
       CUDA_CHECK(cudaMemcpy(buffer, data[i]->gpu_diff(),
           sizeof(Dtype) * count, cudaMemcpyDeviceToHost));
@@ -97,7 +96,8 @@ void ChildWorker<Dtype>::work(CDataRef data) {
     for (int i = 0; i < data.size(); i++) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)
-      CUDA_CHECK(cudaMemcpy(data[i]->mutable_gpu_data(), parent_buffer,
+      CUDA_CHECK(cudaMemcpy(data[i]->mutable_gpu_data(),
+          const_cast<const BufferUnit *>(parent_buffer),
           sizeof(Dtype) * count, cudaMemcpyHostToDevice));
       parent_buffer = parent_buffer->nextv(count);
     }
