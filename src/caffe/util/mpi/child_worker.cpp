@@ -30,6 +30,16 @@ ChildWorker<Dtype>::ChildWorker(int child_index, int parent_pid,
     const int device_id = MPI::GetDevice(child_index);
     Caffe::SetDevice(device_id);
     LOG(INFO) << "Child #" << child_index << " uses the device #" << device_id;
+    set_peer_device(get_parent_device_id());
+    char *shared_gpu_mem;
+    LOG(INFO) << "Child get mem handler: " << (int*)parent_memory_
+        << " [0] = " << ((int**)parent_memory_)[0];
+    CUDA_CHECK(cudaIpcOpenMemHandle((void **)&shared_gpu_mem,
+          *(cudaIpcMemHandle_t *)parent_memory_,
+          cudaIpcMemLazyEnablePeerAccess));
+    parent_memory_ = const_cast<const volatile char *>(shared_gpu_mem);
+    memory_ = shared_gpu_mem + data_size * child_index;
+    LOG(INFO) << "C#" << child_index << " : gpu map: " << (int*)memory_;
   }
 }
 
@@ -48,8 +58,7 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
     break;
   case Caffe::GPU:
 #ifndef CPU_ONLY
-    buffer = ((WorkerData *)((Dtype **)parent_memory_)[0])
-        ->next(data_size_ * child_index_)->data;
+    buffer = ((WorkerData *)memory_)->data;
     DLOG(INFO) << "Sync to parent's GPU: " << buffer;
     for (int i = 0, parent = get_parent_device_id(),
         self = MPI::GetDevice(child_index_); i < data.size(); i++) {
@@ -59,6 +68,7 @@ void ChildWorker<Dtype>::sync(CDataRef data) {
           sizeof(Dtype) * count));
       buffer = buffer->next(count);
     }
+    CUDA_CHECK(cudaStreamSynchronize(0));
 #else
     NO_GPU;
 #endif
@@ -100,7 +110,7 @@ void ChildWorker<Dtype>::work(CDataRef data) {
     break;
   case Caffe::GPU:
 #ifndef CPU_ONLY
-    parent_gpu_buffer = ((WorkerData *)((Dtype **)parent_memory_)[0])->data;
+    parent_gpu_buffer = ((WorkerData *)parent_memory_)->data;
     for (int i = 0, parent = get_parent_device_id(),
         self = MPI::GetDevice(child_index_); i < data.size(); i++) {
       const int count = data[i]->count();
@@ -110,6 +120,7 @@ void ChildWorker<Dtype>::work(CDataRef data) {
           parent_gpu_buffer, parent, sizeof(Dtype) * count));
       parent_gpu_buffer = parent_gpu_buffer->next(count);
     }
+    CUDA_CHECK(cudaStreamSynchronize(0));
 #else
     NO_GPU;
 #endif

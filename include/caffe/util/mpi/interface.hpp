@@ -63,6 +63,8 @@ class Interface {
     return mpi.worker_type_;
   }
 
+  static void Destroy() { mpi.~Interface(); }
+
   template <typename Dtype>
   static void sync(const vector<shared_ptr<Blob<Dtype> > > &net_params) {
     if (mpi.worker_type_ != SELF_ONLY) {

@@ -16,7 +16,7 @@ template <typename Dtype>
 ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
     int data_size, char *memory)
   : Worker<Dtype>(), children_size_(children_size), data_size_(data_size)
-  , children_(children), memory_(memory)
+  , children_(children), memory_(memory), gpu_memory_(NULL)
   , vec_x_((children_size - 1) * sizeof(Dtype))
   , first_params_(data_size), other_params_((children_size - 1) * data_size)
 { 
@@ -28,7 +28,7 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
   ::signal(SIGTERM, exit);
   ::signal(SIGQUIT, exit);
 
-  caffe_set(children_size - 1, ((Dtype)1.) / children_size_,
+  caffe_set(children_size - 1, (Dtype)1.,
       (Dtype *)vec_x_.mutable_cpu_data());
 
   LOG(INFO) << "Parent holds on shared memory " << children_size * data_size
@@ -38,11 +38,11 @@ ParentWorker<Dtype>::ParentWorker(int children_size, const int *children,
     const int device_id = get_parent_device_id();
     Caffe::SetDevice(device_id);
     LOG(INFO) << "Parent uses the device #" << device_id;
-    Dtype *gpu_memory = NULL;
-    CUDA_CHECK(cudaMalloc(&gpu_memory, children_size_ * data_size_));
-    ((Dtype **)memory_)[0] = gpu_memory;
-    LOG(INFO) << "Parent shared GPU memory: " << gpu_memory
-        << " , saved to "<< (void *)memory_;
+    CUDA_CHECK(cudaMalloc(&gpu_memory_, children_size_ * data_size_));
+    CUDA_CHECK(cudaIpcGetMemHandle((cudaIpcMemHandle_t *)memory_, gpu_memory_));
+    LOG(INFO) << "Parent shared GPU memory handler: *" << (void *)memory_
+        << " for GPU area " << gpu_memory_ << " with data "
+        << *(int **)memory_;
     vec_x_.gpu_data();
   }
 }
@@ -75,8 +75,11 @@ void ParentWorker<Dtype>::work(CDataRef data) {
   case Caffe::CPU:
     vec_y = (Dtype *)first_params_.mutable_cpu_data();
     mat_A = (const Dtype *)other_params_.cpu_data();
-    caffe_cpu_gemv<Dtype>(CblasNoTrans, data_size_ / sizeof(Dtype),
-        children_size_ - 1, (Dtype)1., mat_A, (const Dtype *)vec_x_.cpu_data(),
+    caffe_cpu_gemv<Dtype>(CblasTrans,
+        children_size_ - 1,
+        data_size_ / sizeof(Dtype),
+        (Dtype)1. / children_size_,
+        mat_A, (const Dtype *)vec_x_.cpu_data(),
         (Dtype)1. / children_size_, vec_y);
 
     buffer = ((WorkerData *)vec_y)->data;
@@ -89,11 +92,14 @@ void ParentWorker<Dtype>::work(CDataRef data) {
     break;
   case Caffe::GPU:
 #ifndef CPU_ONLY
-    vec_y = ((Dtype **)memory_)[0];
+    vec_y = gpu_memory_;
     DLOG(INFO) << "Parent shared GPU memory: " << vec_y;
     mat_A = (const Dtype *)((char *)vec_y + data_size_);
-    caffe_gpu_gemv<Dtype>(CblasNoTrans, data_size_ / sizeof(Dtype),
-        children_size_ - 1, (Dtype)1., mat_A, (const Dtype *)vec_x_.gpu_data(),
+    caffe_gpu_gemv<Dtype>(CblasTrans,
+        children_size_ - 1,
+        data_size_ / sizeof(Dtype),
+        (Dtype)1. / children_size_,
+        mat_A, (const Dtype *)vec_x_.gpu_data(),
         (Dtype)1. / children_size_, vec_y);
 
     buffer = ((WorkerData *)vec_y)->data;
@@ -101,7 +107,7 @@ void ParentWorker<Dtype>::work(CDataRef data) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)
       CUDA_CHECK(cudaMemcpy(data[i]->mutable_gpu_diff(), buffer,
-          sizeof(Dtype) * count, cudaMemcpyDefault));
+          sizeof(Dtype) * count, cudaMemcpyDeviceToDevice));
       buffer = buffer->next(count);
     }
 #else
@@ -115,9 +121,10 @@ void ParentWorker<Dtype>::work(CDataRef data) {
 
 template <typename Dtype>
 void ParentWorker<Dtype>::signal(CDataRef data) {
-  BufferUnit *buffer = ((WorkerData **)memory_)[0]->data;
+  BufferUnit *buffer;
   switch (Caffe::mode()) {
   case Caffe::CPU:
+    buffer = ((WorkerData *)memory_)->data;
     for (int i = 0; i < data.size(); i++) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)
@@ -127,6 +134,7 @@ void ParentWorker<Dtype>::signal(CDataRef data) {
     break;
   case Caffe::GPU:
 #ifndef CPU_ONLY
+    buffer = ((WorkerData *)gpu_memory_)->data;
     for (int i = 0; i < data.size(); i++) {
       const int count = data[i]->count();
       // NOLINT_NEXT_LINE(caffe/alt_fn)
@@ -152,11 +160,12 @@ void ParentWorker<Dtype>::signal(CDataRef data) {
 
 template <typename Dtype>
 void ParentWorker<Dtype>::clean() {
-  union sigval rc_val;
-  rc_val.sival_int = -2;
+  // union sigval rc_val;
+  // rc_val.sival_int = -2;
   for (int i = 0; i < children_size_; i++) {
     const pid_t pid = children_[i];
-    sigqueue(pid, SIGTERM, rc_val);
+    // sigqueue(pid, SIGKILL, rc_val);
+    kill(pid, SIGKILL);
   }
   LOG(INFO) << "Broadcast: exit";
 }
@@ -195,4 +204,5 @@ void clean_at_exit() {
     s_first_d->clean();
     s_first_d = NULL;
   }
+  exit(0);
 }

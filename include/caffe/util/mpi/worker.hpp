@@ -8,7 +8,7 @@ namespace caffe {
 namespace mpi {
 
 extern const int SIGSYNC;
-const int SHARED_HOST_MEM_MIN_SIZE = 4096;
+const int SHARED_HOST_MEM_MIN_SIZE = sizeof(cudaIpcMemHandle_t);
 
 void block_signal_for_sync();
 int get_parent_device_id();
@@ -95,6 +95,7 @@ class ParentWorker : public Worker<Dtype> {
   const int children_size_, data_size_;
   const int * const children_;
   char *const memory_;
+  Dtype *gpu_memory_;
   SyncedMemory vec_x_, first_params_, other_params_;
   
  private:
@@ -119,8 +120,8 @@ class ChildWorker : public Worker<Dtype> {
 
  protected:
   const int child_index_, parent_pid_, data_size_;
-  volatile const char *const parent_memory_;
-  char *const memory_; // used only when in CPU mode
+  volatile const char * parent_memory_;
+  char * memory_; // used also in GPU mode
 
  private:
   DISABLE_COPY_AND_ASSIGN(ChildWorker);

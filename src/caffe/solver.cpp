@@ -174,12 +174,18 @@ void Solver<Dtype>::Step(int iters) {
   Dtype smoothed_loss = 0;
   double iter_time = 0;
   CPUTimer timer;
+  CPUTimer timer_total;
+  timer_total.Start();
 
   for (; iter_ < stop_iter; ++iter_) {
     if (MPI::worker_type() != MPI::CHILD) { // TODO: create a test thread
       if (param_.test_interval() && iter_ % param_.test_interval() == 0
           && (iter_ > 0 || param_.test_initialization())) {
-        TestAll();
+        // TestAll();
+        float delta = timer_total.MicroSeconds();
+        LOG(INFO) << " P: time cost: " << delta / 1000.0
+          << "ms @ " << iter_ << "\n\n";
+        timer_total.Start();
       }
     }
     if (MPI::worker_type() != MPI::PARENT) {
@@ -244,6 +250,7 @@ void Solver<Dtype>::Step(int iters) {
   if (MPI::worker_type() == MPI::CHILD) {
     exit(0);
   }
+  MPI::Destroy();
 }
 
 template <typename Dtype>
@@ -341,7 +348,7 @@ void Solver<Dtype>::Test(const int test_net_id) {
       loss_msg_stream << " (* " << loss_weight
                       << " = " << loss_weight * mean_score << " loss)";
     }
-    LOG(INFO) << " P: Test net output #" << i << ": " << output_name << " = "
+    LOG(INFO) << "    Test net output #" << i << ": " << output_name << " = "
         << mean_score << loss_msg_stream.str();
   }
 }
@@ -491,7 +498,7 @@ void SGDSolver<Dtype>::ComputeUpdateValue() {
   Dtype rate = GetLearningRate();
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
     LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
-    LOG(INFO) << "        Sync = " << (sync_time_ / 1000) << " ms.\n\n";
+    LOG(INFO) << " P: Sync = " << (sync_time_ / 1000) << " ms.\n\n";
     sync_time_ = 0;
   }
   ClipGradients();
@@ -608,7 +615,7 @@ void NesterovSolver<Dtype>::ComputeUpdateValue() {
   Dtype rate = this->GetLearningRate();
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
     LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
-    LOG(INFO) << "        Sync = " << (sync_time_ / 1000) << " ms.\n\n";
+    LOG(INFO) << " P: Sync = " << (sync_time_ / 1000) << " ms.\n\n";
   }
   SGDSolver<Dtype>::ClipGradients();
   Dtype momentum = this->param_.momentum();
@@ -727,7 +734,7 @@ void AdaGradSolver<Dtype>::ComputeUpdateValue() {
   Dtype delta = this->param_.delta();
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
     LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
-    LOG(INFO) << "        Sync = " << (sync_time_ / 1000) << " ms.\n\n";
+    LOG(INFO) << " P: Sync = " << (sync_time_ / 1000) << " ms.\n\n";
   }
   SGDSolver<Dtype>::ClipGradients();
   Dtype weight_decay = this->param_.weight_decay();
