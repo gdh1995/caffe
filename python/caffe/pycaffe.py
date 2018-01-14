@@ -12,6 +12,7 @@ import numpy as np
 
 from ._caffe import Net, SGDSolver, NesterovSolver, AdaGradSolver, \
         RMSPropSolver, AdaDeltaSolver, AdamSolver, NCCL, Timer
+from ._caffe import LayerParameter
 import caffe.io
 
 import six
@@ -343,3 +344,11 @@ Net.inputs = _Net_inputs
 Net.outputs = _Net_outputs
 Net.top_names = _Net_get_id_name(Net._top_ids, "_top_names")
 Net.bottom_names = _Net_get_id_name(Net._bottom_ids, "_bottom_names")
+
+# LayerParameter
+def _LayerParameter_to_python(self):
+    from caffe.proto import caffe_pb2
+    layer_param = caffe_pb2.LayerParameter()
+    return self._to_python(layer_param)
+# Attach method
+LayerParameter.to_python = _LayerParameter_to_python

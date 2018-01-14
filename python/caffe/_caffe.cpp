@@ -3,6 +3,8 @@
 // Produce deprecation warnings (needs to come before arrayobject.h inclusion).
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 
+#include <google/protobuf/text_format.h>
+
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/python/raw_function.hpp>
@@ -17,6 +19,8 @@
 
 #include "caffe/caffe.hpp"
 #include "caffe/layers/memory_data_layer.hpp"
+#include "caffe/layer_factory.hpp"
+#include "caffe/proto/caffe.pb.h"
 #include "caffe/layers/python_layer.hpp"
 #include "caffe/sgd_solvers.hpp"
 
@@ -195,6 +199,31 @@ void Net_SetInputArrays(Net<Dtype>* net, bp::object data_obj,
   md_layer->Reset(static_cast<Dtype*>(PyArray_DATA(data_arr)),
       static_cast<Dtype*>(PyArray_DATA(labels_arr)),
       PyArray_DIMS(data_arr)[0]);
+}
+
+// Scoped GIL releasing
+class ReleaseGIL {
+ public:
+  ReleaseGIL() {
+    state_ = PyEval_SaveThread();
+  }
+  ~ReleaseGIL() {
+    PyEval_RestoreThread(state_);
+  }
+ private:
+  PyThreadState* state_;
+};
+
+// Run forward prop without GIL
+Dtype Net_ForwardFromToNoGIL(Net<Dtype>* net, int start, int end) {
+  ReleaseGIL gil;
+  return net->ForwardFromTo(start, end);
+}
+
+// Run backward prop without GIL
+void Net_BackwardFromToNoGIL(Net<Dtype>* net, int start, int end) {
+  ReleaseGIL gil;
+  net->BackwardFromTo(start, end);
 }
 
 Solver<Dtype>* GetSolverFromFile(const string& filename) {
@@ -377,6 +406,97 @@ bp::object NCCL_New_Uid() {
 }
 #endif
 
+// Layer
+template <class T>
+vector<T> py_to_vector(bp::object pyiter) {
+  vector<T> vec;
+  for (int i = 0; i < bp::len(pyiter); ++i) {
+    vec.push_back(bp::extract<T>(pyiter[i]));
+  }
+  return vec;
+}
+void Layer_SetUp(Layer<Dtype> *layer, bp::object py_bottom, bp::object py_top) {
+  vector<Blob<Dtype>*> bottom = py_to_vector<Blob<Dtype>*>(py_bottom);
+  vector<Blob<Dtype>*> top = py_to_vector<Blob<Dtype>*>(py_top);
+  {
+    ReleaseGIL gil;
+    layer->SetUp(bottom, top);
+  }
+}
+void Layer_Reshape(
+    Layer<Dtype> *layer, bp::object py_bottom, bp::object py_top) {
+  vector<Blob<Dtype>*> bottom = py_to_vector<Blob<Dtype>*>(py_bottom);
+  vector<Blob<Dtype>*> top = py_to_vector<Blob<Dtype>*>(py_top);
+  {
+    ReleaseGIL gil;
+    layer->Reshape(bottom, top);
+  }
+}
+Dtype Layer_Forward(
+    Layer<Dtype> *layer, bp::object py_bottom, bp::object py_top) {
+  vector<Blob<Dtype>*> bottom = py_to_vector<Blob<Dtype>*>(py_bottom);
+  vector<Blob<Dtype>*> top = py_to_vector<Blob<Dtype>*>(py_top);
+  Dtype loss;
+  {
+    ReleaseGIL gil;
+    loss = layer->Forward(bottom, top);
+  }
+  return loss;
+}
+void Layer_Backward(
+    Layer<Dtype> *layer, bp::object py_top, bp::object py_propagate_down,
+    bp::object py_bottom) {
+  vector<Blob<Dtype>*> top = py_to_vector<Blob<Dtype>*>(py_top);
+  vector<bool> propagate_down = py_to_vector<bool>(py_propagate_down);
+  vector<Blob<Dtype>*> bottom = py_to_vector<Blob<Dtype>*>(py_bottom);
+  {
+    ReleaseGIL gil;
+    layer->Backward(top, propagate_down, bottom);
+  }
+}
+
+// LayerParameter
+shared_ptr<LayerParameter> LayerParameter_Init(bp::object py_layer_param) {
+  shared_ptr<LayerParameter> layer_param(new LayerParameter);
+  if (PyObject_HasAttrString(py_layer_param.ptr(), "SerializeToString")) {
+    string dump = bp::extract<string>(
+        py_layer_param.attr("SerializeToString")());
+    layer_param->ParseFromString(dump);
+  } else {
+    try {
+      string dump = bp::extract<string>(py_layer_param);
+      google::protobuf::TextFormat::ParseFromString(dump, layer_param.get());
+    } catch(...) {
+      throw std::runtime_error("1st arg must be LayerPrameter or string.");
+    }
+  }
+  if (!layer_param->IsInitialized()) {
+    throw std::runtime_error(
+      "LayerParameter not initialized: Missing required fields.");
+  }
+  return layer_param;
+}
+void LayerParameter_FromPython(
+    LayerParameter *layer_param, bp::object py_layer_param) {
+  shared_ptr<LayerParameter> copy = \
+      LayerParameter_Init(py_layer_param);
+  layer_param->Clear();
+  layer_param->CopyFrom(*copy);
+}
+bp::object LayerParameter_ToPython(
+    const LayerParameter *layer_param, bp::object py_layer_param) {
+  string dump;
+  layer_param->SerializeToString(&dump);
+  py_layer_param.attr("ParseFromString")(bp::object(dump));
+  return py_layer_param;
+}
+
+// Create layer from caffe_pb2.LayerParameter in Python
+shared_ptr<Layer<Dtype> > create_layer(bp::object py_layer_param) {
+  shared_ptr<LayerParameter> layer_param(LayerParameter_Init(py_layer_param));
+  return LayerRegistry<Dtype>::CreateLayer(*layer_param.get());
+}
+
 BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(SolveOverloads, Solve, 0, 1);
 
 BOOST_PYTHON_MODULE(_caffe) {
@@ -417,8 +537,8 @@ BOOST_PYTHON_MODULE(_caffe) {
             bp::arg("weights")=bp::object())))
     // Legacy constructor
     .def("__init__", bp::make_constructor(&Net_Init_Load))
-    .def("_forward", &Net<Dtype>::ForwardFromTo)
-    .def("_backward", &Net<Dtype>::BackwardFromTo)
+    .def("_forward", &Net_ForwardFromToNoGIL)
+    .def("_backward", &Net_BackwardFromToNoGIL)
     .def("reshape", &Net<Dtype>::Reshape)
     .def("clear_param_diffs", &Net<Dtype>::ClearParamDiffs)
     // The cast is to select a particular overload.
@@ -485,12 +605,17 @@ BOOST_PYTHON_MODULE(_caffe) {
   BP_REGISTER_SHARED_PTR_TO_PYTHON(Blob<Dtype>);
 
   bp::class_<Layer<Dtype>, shared_ptr<PythonLayer<Dtype> >,
-    boost::noncopyable>("Layer", bp::init<const LayerParameter&>())
+      boost::noncopyable>(
+      "Layer", bp::init<const LayerParameter&>())
     .add_property("blobs", bp::make_function(&Layer<Dtype>::blobs,
           bp::return_internal_reference<>()))
     .def("setup", &Layer<Dtype>::LayerSetUp)
+    .def("SetUp", &Layer_SetUp)
     .def("reshape", &Layer<Dtype>::Reshape)
     .add_property("phase", bp::make_function(&Layer<Dtype>::phase))
+    .def("Reshape", &Layer_Reshape)
+    .def("Forward", &Layer_Forward)
+    .def("Backward", &Layer_Backward)
     .add_property("type", bp::make_function(&Layer<Dtype>::type));
   BP_REGISTER_SHARED_PTR_TO_PYTHON(Layer<Dtype>);
 
@@ -498,7 +623,13 @@ BOOST_PYTHON_MODULE(_caffe) {
     .add_property("max_iter", &SolverParameter::max_iter)
     .add_property("display", &SolverParameter::display)
     .add_property("layer_wise_reduce", &SolverParameter::layer_wise_reduce);
-  bp::class_<LayerParameter>("LayerParameter", bp::no_init);
+  bp::class_<LayerParameter, shared_ptr<LayerParameter> >(
+      "LayerParameter", bp::no_init)
+    .def("__init__", bp::make_constructor(&LayerParameter_Init))
+    .def("from_python", &LayerParameter_FromPython)
+    .def("_to_python", &LayerParameter_ToPython);
+
+  bp::def("create_layer", &create_layer);
 
   bp::class_<Solver<Dtype>, shared_ptr<Solver<Dtype> >, boost::noncopyable>(
     "Solver", bp::no_init)
